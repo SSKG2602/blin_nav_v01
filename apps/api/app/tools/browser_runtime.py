@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from app.schemas.session import Merchant
@@ -51,4 +51,7 @@ class BrowserRuntimeClient(Protocol):
         session_id: UUID,
         error_type: str | None = None,
     ) -> None:
+        ...
+
+    def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
         ...

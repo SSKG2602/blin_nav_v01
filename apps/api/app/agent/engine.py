@@ -140,7 +140,7 @@ def next_state(
     if current_state == AgentState.SESSION_INITIALIZING and isinstance(event, UserIntentParsed):
         command = AgentCommand(
             type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS,
-            payload={"intent": event.intent, "query": event.query},
+            payload={"intent": event.intent, "query": event.query, "merchant": event.merchant},
         )
         log_entry = _build_log(
             session_id=session_id,

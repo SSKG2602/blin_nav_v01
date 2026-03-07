@@ -93,6 +93,15 @@ class FakeBrowserRuntimeClient(BrowserRuntimeClient):
             }
         )
 
+    def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "method": "get_current_page_observation",
+                "session_id": session_id,
+            }
+        )
+        return {}
+
 
 def test_execute_navigate_to_search_results_maps_payload() -> None:
     fake = FakeBrowserRuntimeClient()

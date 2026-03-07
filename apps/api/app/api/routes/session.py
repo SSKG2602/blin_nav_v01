@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -16,7 +17,11 @@ from app.repositories.session_repo import (
     list_agent_logs_for_session,
     list_sessions,
 )
+from app.repositories.session_context_repo import get_session_context, update_session_context
 from app.schemas.agent_log import AgentLogEntry, AgentStepType
+from app.schemas.control_state import CheckpointStatus, SensitiveCheckpointRequest
+from app.schemas.purchase_support import FinalPurchaseConfirmation
+from app.schemas.session_context import SessionContextSnapshot
 from app.schemas.session import Merchant, SessionCreate, SessionDetail, SessionSummary
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -34,6 +39,11 @@ class AgentLogCreate(BaseModel):
     user_spoken_summary: str | None = None
     error_type: str | None = None
     error_message: str | None = None
+
+
+class CheckpointResolveRequest(BaseModel):
+    approved: bool
+    resolution_notes: str | None = None
 
 
 @router.post(
@@ -107,3 +117,85 @@ def list_agent_logs_for_session_endpoint(
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return list_agent_logs_for_session(db, session_id)
+
+
+@router.get(
+    "/{session_id}/context",
+    response_model=SessionContextSnapshot,
+)
+def get_session_context_endpoint(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+) -> SessionContextSnapshot:
+    session = get_session(db, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    context = get_session_context(db, session_id)
+    if context is not None:
+        return context
+
+    return SessionContextSnapshot(session_id=session_id)
+
+
+@router.get(
+    "/{session_id}/checkpoint",
+    response_model=SensitiveCheckpointRequest,
+)
+def get_session_checkpoint_endpoint(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+) -> SensitiveCheckpointRequest:
+    session = get_session(db, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    context = get_session_context(db, session_id)
+    if context is None or context.latest_sensitive_checkpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+    return context.latest_sensitive_checkpoint
+
+
+@router.post(
+    "/{session_id}/checkpoint/resolve",
+    response_model=SensitiveCheckpointRequest,
+)
+def resolve_session_checkpoint_endpoint(
+    session_id: UUID,
+    payload: CheckpointResolveRequest,
+    db: Session = Depends(get_db),
+) -> SensitiveCheckpointRequest:
+    session = get_session(db, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    context = get_session_context(db, session_id)
+    if context is None or context.latest_sensitive_checkpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+
+    checkpoint = context.latest_sensitive_checkpoint.model_copy(
+        update={
+            "status": CheckpointStatus.APPROVED if payload.approved else CheckpointStatus.REJECTED,
+            "resolved_at": datetime.utcnow(),
+            "resolution_notes": payload.resolution_notes,
+        }
+    )
+    updated_context = update_session_context(
+        db,
+        session_id,
+        latest_sensitive_checkpoint=checkpoint,
+        latest_final_purchase_confirmation=FinalPurchaseConfirmation(
+            required=True,
+            confirmed=payload.approved,
+            prompt_to_user=None if payload.approved else "User rejected final purchase confirmation.",
+            confirmation_phrase_expected="confirm purchase",
+            notes=(
+                "Final purchase checkpoint resolved as approved."
+                if payload.approved
+                else "Final purchase checkpoint resolved as rejected."
+            ),
+        ),
+    )
+    if updated_context.latest_sensitive_checkpoint is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Checkpoint update failed")
+    return updated_context.latest_sensitive_checkpoint

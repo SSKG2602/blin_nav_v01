@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -27,6 +27,12 @@ class SessionORM(Base):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    context = relationship(
+        "SessionContextORM",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class AgentLogORM(Base):
@@ -48,3 +54,25 @@ class AgentLogORM(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     session = relationship("SessionORM", back_populates="logs")
+
+
+class SessionContextORM(Base):
+    __tablename__ = "session_contexts"
+
+    session_id = Column(String(36), ForeignKey("sessions.id"), primary_key=True)
+    latest_intent_json = Column(JSON, nullable=True)
+    latest_product_intent_json = Column(JSON, nullable=True)
+    latest_page_understanding_json = Column(JSON, nullable=True)
+    latest_verification_json = Column(JSON, nullable=True)
+    latest_multimodal_assessment_json = Column(JSON, nullable=True)
+    latest_sensitive_checkpoint_json = Column(JSON, nullable=True)
+    latest_low_confidence_status_json = Column(JSON, nullable=True)
+    latest_recovery_status_json = Column(JSON, nullable=True)
+    latest_trust_assessment_json = Column(JSON, nullable=True)
+    latest_review_assessment_json = Column(JSON, nullable=True)
+    latest_final_purchase_confirmation_json = Column(JSON, nullable=True)
+    latest_post_purchase_summary_json = Column(JSON, nullable=True)
+    latest_spoken_summary = Column(String(1024), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    session = relationship("SessionORM", back_populates="context")

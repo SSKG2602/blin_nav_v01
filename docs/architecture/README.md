@@ -28,4 +28,5 @@ Current status:
 - Contracts now have DB persistence in SQLAlchemy ORM models under `app/models/session.py`.
 - Repositories in `app/repositories/session_repo.py` form the persistence boundary and convert between ORM rows and Pydantic schemas.
 - Future HTTP API and state-machine modules should call repositories rather than accessing ORM models directly.
+- Session HTTP endpoints now sit above this repository boundary and delegate persistence operations without embedding ORM access in route handlers.
 - No state machine behavior is implemented here yet; this remains a persistence-first schema spine.

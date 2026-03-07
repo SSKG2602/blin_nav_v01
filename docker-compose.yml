@@ -1,0 +1,83 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+    working_dir: /workspace/apps/web
+    command: sh -c "npm install && npm run dev"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8100
+      NEXT_PUBLIC_WAKE_NAME: ${PRODUCT_WAKE_NAME:-Luminar}
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./apps/web:/workspace/apps/web
+      - web-node-modules:/workspace/apps/web/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3100').then(() => process.exit(0)).catch(() => process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+    working_dir: /workspace/apps/api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
+    environment:
+      SERVICE_NAME: ${SERVICE_NAME:-blindnav-api}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3100}
+      PRODUCT_WAKE_NAME: ${PRODUCT_WAKE_NAME:-Luminar}
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://blindnav:blindnav@postgres:5432/blindnav
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./apps/api:/workspace/apps/api
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8100/health/live')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: blindnav
+      POSTGRES_USER: blindnav
+      POSTGRES_PASSWORD: blindnav
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blindnav -d blindnav"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  web-node-modules:

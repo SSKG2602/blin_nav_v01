@@ -1,0 +1,28 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: blindnav-api
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/startup-cpu-boost: "true"
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 3600
+      containers:
+        - image: REPLACE_WITH_CLOUD_RUN_IMAGE
+          ports:
+            - containerPort: 8100
+          env:
+            - name: SERVICE_NAME
+              value: blindnav-api
+            - name: ENVIRONMENT
+              value: production
+            - name: PRODUCT_WAKE_NAME
+              value: Luminar
+            - name: MERCHANT_PRIMARY
+              value: amazon.in

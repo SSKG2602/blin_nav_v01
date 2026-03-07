@@ -31,7 +31,8 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8100 --reload
     environment:
       SERVICE_NAME: ${SERVICE_NAME:-blindnav-api}
-      ENVIRONMENT: ${ENVIRONMENT:-local}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3100}
       PRODUCT_WAKE_NAME: ${PRODUCT_WAKE_NAME:-Luminar}
       REDIS_URL: redis://redis:6379/0

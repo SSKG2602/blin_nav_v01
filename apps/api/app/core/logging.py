@@ -1,8 +1,11 @@
 import logging
 from logging.config import dictConfig
 
+from app.core.config import settings
+
 
 def configure_logging() -> None:
+    log_level = settings.LOG_LEVEL.upper()
     dictConfig(
         {
             "version": 1,
@@ -18,6 +21,6 @@ def configure_logging() -> None:
                     "formatter": "default",
                 }
             },
-            "root": {"level": logging.INFO, "handlers": ["default"]},
+            "root": {"level": log_level, "handlers": ["default"]},
         }
     )

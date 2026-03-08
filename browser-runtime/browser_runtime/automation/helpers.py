@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 AMAZON_HOME_URL = "https://www.amazon.in"
 AMAZON_CART_URL = "https://www.amazon.in/gp/cart/view.html"
+AMAZON_ORDERS_URL = "https://www.amazon.in/gp/css/order-history"
 
 SEARCH_INPUT_SELECTORS = [
     "input#twotabsearchtextbox",
@@ -46,6 +47,69 @@ VARIANT_OPTION_SELECTORS = [
     "#variation_color_name li",
     "#variation_style_name li",
     "#twister-plus-inline-twister [role='button']",
+]
+
+CART_ROW_SELECTORS = [
+    "div.sc-list-item-content",
+    ".sc-list-item",
+    '[data-name="Active Items"] .sc-list-item-content',
+]
+
+CART_REMOVE_SELECTORS = [
+    'input[value="Delete"]',
+    '[data-action="delete"] input[type="submit"]',
+    '[data-action="delete"]',
+    "button.sc-action-delete",
+]
+
+CART_QUANTITY_SELECTORS = [
+    "select[name*='quantity']",
+    "select.sc-update-quantity",
+    "input[name='quantityBox']",
+]
+
+ORDERS_CARD_SELECTORS = [
+    "[data-order-id]",
+    ".order-card",
+    ".a-box-group",
+    ".order",
+]
+
+CAPTCHA_SELECTORS = [
+    "input#captchacharacters",
+    "img[src*='captcha']",
+    "form[action*='validateCaptcha']",
+]
+
+OTP_SELECTORS = [
+    "input[name*='otp']",
+    "input[id*='otp']",
+    "input[autocomplete='one-time-code']",
+]
+
+PAYMENT_AUTH_SELECTORS = [
+    "input[name*='cvv']",
+    "input[id*='cvv']",
+    "input[name*='upi']",
+    "iframe[name*='payment']",
+]
+
+PRODUCT_ANCHOR_SELECTORS = [
+    "#productTitle",
+    "#add-to-cart-button",
+    "#acrPopover",
+]
+
+CART_ANCHOR_SELECTORS = [
+    "#sc-subtotal-label-buybox",
+    ".sc-list-item",
+    'input[name="proceedToRetailCheckout"]',
+]
+
+CHECKOUT_ANCHOR_SELECTORS = [
+    "#submitOrderButtonId",
+    "#placeYourOrder",
+    "input[name='placeYourOrder1']",
 ]
 
 MODAL_DISMISS_SELECTORS = [
@@ -275,6 +339,22 @@ def _extract_first_attr(scope: Any, selectors: list[str], attr_name: str) -> str
     return None
 
 
+def _extract_text_list(scope: Any, selectors: list[str], limit: int = 6) -> list[str]:
+    values: list[str] = []
+    for selector in selectors:
+        locator = safe_locator(scope, selector)
+        if locator is None:
+            continue
+        count = safe_count(locator)
+        for index in range(min(count, limit)):
+            value = safe_inner_text(_nth(locator, index))
+            if value and value not in values:
+                values.append(value)
+        if values:
+            break
+    return values
+
+
 @dataclass
 class SessionActionState:
     last_search_query: str | None = None
@@ -444,6 +524,59 @@ def dismiss_common_interruptions(page: Any) -> list[str]:
     return notes
 
 
+def collect_semantic_page_signals(page: Any) -> list[str]:
+    signals: list[str] = []
+    groups = [
+        ("captcha_visible", CAPTCHA_SELECTORS),
+        ("otp_required", OTP_SELECTORS),
+        ("payment_auth_required", PAYMENT_AUTH_SELECTORS),
+        ("product_anchor_present", PRODUCT_ANCHOR_SELECTORS),
+        ("cart_anchor_present", CART_ANCHOR_SELECTORS),
+        ("checkout_anchor_present", CHECKOUT_ANCHOR_SELECTORS),
+    ]
+    for label, selectors in groups:
+        for selector in selectors:
+            locator = safe_locator(page, selector)
+            if locator is None or safe_count(locator) <= 0:
+                continue
+            visible = safe_is_visible(_first(locator))
+            if visible is False:
+                continue
+            signals.append(label)
+            break
+    return signals
+
+
+def _has_visible_selector(scope: Any, selectors: list[str]) -> bool:
+    for selector in selectors:
+        locator = safe_locator(scope, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        visible = safe_is_visible(_first(locator))
+        if visible is False:
+            continue
+        return True
+    return False
+
+
+def _run_stabilization_pass(
+    page: Any,
+    *,
+    anchor_selectors: list[str],
+    wait_selectors: list[str],
+    note_prefix: str,
+) -> list[str]:
+    if not _has_visible_selector(page, anchor_selectors):
+        return []
+    notes = [f"{note_prefix}:anchor_detected"]
+    safe_wait_for_load(page, timeout_ms=5000)
+    for selector in wait_selectors:
+        if safe_wait_for_selector(page, selector, timeout_ms=2500):
+            notes.append(f"{note_prefix}:waited:{selector}")
+            break
+    return notes
+
+
 def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
     notes: list[str] = []
     query_text = _normalize_text(query)
@@ -451,31 +584,38 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
         notes.append("query_missing")
         return False, notes
 
-    target = None
-    for selector in SEARCH_INPUT_SELECTORS:
-        safe_wait_for_selector(page, selector, timeout_ms=3500)
-        locator = safe_locator(page, selector)
-        if locator is None:
-            continue
-        candidate = _first(locator)
-        visible = safe_is_visible(candidate)
-        if visible is False:
-            continue
-        target = candidate
-        break
+    for attempt in range(2):
+        target = None
+        for selector in SEARCH_INPUT_SELECTORS:
+            safe_wait_for_selector(page, selector, timeout_ms=3500)
+            locator = safe_locator(page, selector)
+            if locator is None:
+                continue
+            candidate = _first(locator)
+            visible = safe_is_visible(candidate)
+            if visible is False:
+                continue
+            target = candidate
+            break
 
-    if target is None:
-        notes.append("search_box_not_found")
-        return False, notes
+        if target is None:
+            if attempt == 0 and safe_goto(page, AMAZON_HOME_URL):
+                notes.append("search_context_reset")
+                continue
+            notes.append("search_box_not_found")
+            return False, notes
 
-    if not safe_fill(target, query_text):
-        notes.append("search_fill_failed")
-        return False, notes
-    if not safe_press(target, "Enter"):
-        notes.append("search_submit_failed")
-        return False, notes
-    safe_wait_for_load(page)
-    return True, notes
+        if not safe_fill(target, query_text):
+            notes.append("search_fill_failed")
+            return False, notes
+        if not safe_press(target, "Enter"):
+            notes.append("search_submit_failed")
+            return False, notes
+        safe_wait_for_load(page)
+        return True, notes
+
+    notes.append("search_submit_unresolved")
+    return False, notes
 
 
 def collect_search_result_candidates(page: Any, limit: int = 8) -> list[dict[str, Any]]:
@@ -608,6 +748,17 @@ def open_best_search_result(page: Any, *, session_id: UUID) -> tuple[bool, dict[
 
 
 def extract_product_detail_evidence(page: Any) -> dict[str, Any]:
+    variant_options = _extract_text_list(page, VARIANT_OPTION_SELECTORS, limit=10)
+    review_snippets = _extract_text_list(
+        page,
+        [
+            "#cm-cr-dp-review-list [data-hook='review-collapsed'] span",
+            "#cm-cr-dp-review-list [data-hook='review-body'] span",
+            "[data-hook='review-collapsed'] span",
+            "[data-hook='review-body'] span",
+        ],
+        limit=4,
+    )
     evidence = {
         "title": _extract_first_text(page, ["#productTitle", "span#productTitle", "h1.a-size-large span"]),
         "price_text": _extract_first_text(
@@ -622,6 +773,8 @@ def extract_product_detail_evidence(page: Any) -> dict[str, Any]:
         "rating_text": _extract_first_text(page, ["#acrPopover span.a-icon-alt", "span[data-hook='rating-out-of-text']"]),
         "review_count_text": _extract_first_text(page, ["#acrCustomerReviewText", "span[data-hook='total-review-count']"]),
         "brand_text": _extract_first_text(page, ["#bylineInfo", "a#bylineInfo", "tr.po-brand td.a-span9 span"]),
+        "review_snippets": review_snippets,
+        "variant_options": variant_options,
         "url": safe_page_url(page),
         "page_title": safe_page_title(page),
     }
@@ -667,31 +820,42 @@ def select_variant_option(
         notes.append("variant_hint_missing")
         return False, notes, signature
 
-    for selector in VARIANT_OPTION_SELECTORS:
-        locator = safe_locator(page, selector)
-        if locator is None:
-            continue
-        count = safe_count(locator)
-        if count <= 0:
-            continue
+    for attempt in range(2):
+        for selector in VARIANT_OPTION_SELECTORS:
+            locator = safe_locator(page, selector)
+            if locator is None:
+                continue
+            count = safe_count(locator)
+            if count <= 0:
+                continue
 
-        for index in range(min(count, 12)):
-            option = _nth(locator, index)
-            option_text = _normalize_lower(safe_inner_text(option))
-            if not option_text:
-                continue
-            if not any(hint.lower() in option_text for hint in hints):
-                continue
-            if not safe_click(option):
-                continue
-            safe_wait_for_load(page, timeout_ms=5000)
-            notes.append(f"variant_selected:{selector}:{index}")
-            action_guard.record_variant_selection(
-                session_id,
-                signature=signature,
-                current_url=safe_page_url(page),
+            for index in range(min(count, 12)):
+                option = _nth(locator, index)
+                option_text = _normalize_lower(safe_inner_text(option))
+                if not option_text:
+                    continue
+                if not any(hint.lower() in option_text for hint in hints):
+                    continue
+                if not safe_click(option):
+                    continue
+                safe_wait_for_load(page, timeout_ms=5000)
+                notes.append(f"variant_selected:{selector}:{index}")
+                action_guard.record_variant_selection(
+                    session_id,
+                    signature=signature,
+                    current_url=safe_page_url(page),
+                )
+                return True, notes, signature
+
+        if attempt == 0:
+            notes.extend(
+                _run_stabilization_pass(
+                    page,
+                    anchor_selectors=PRODUCT_ANCHOR_SELECTORS,
+                    wait_selectors=VARIANT_OPTION_SELECTORS,
+                    note_prefix="variant_ui_stabilization_retry",
+                )
             )
-            return True, notes, signature
 
     notes.append("variant_option_not_found")
     return False, notes, signature
@@ -704,22 +868,32 @@ def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, l
         notes.append("duplicate_add_to_cart_skipped")
         return True, notes
 
-    for selector in ADD_TO_CART_BUTTON_SELECTORS:
-        locator = safe_locator(page, selector)
-        if locator is None:
-            continue
-        if safe_count(locator) <= 0:
-            continue
-        target = _first(locator)
-        visible = safe_is_visible(target)
-        if visible is False:
-            continue
-        if not safe_click(target):
-            continue
-        safe_wait_for_load(page)
-        action_guard.record_add_to_cart(session_id, current_url=safe_page_url(page))
-        notes.append(f"add_to_cart_clicked:{selector}")
-        return True, notes
+    for attempt in range(2):
+        for selector in ADD_TO_CART_BUTTON_SELECTORS:
+            locator = safe_locator(page, selector)
+            if locator is None:
+                continue
+            if safe_count(locator) <= 0:
+                continue
+            target = _first(locator)
+            visible = safe_is_visible(target)
+            if visible is False:
+                continue
+            if not safe_click(target):
+                continue
+            safe_wait_for_load(page)
+            action_guard.record_add_to_cart(session_id, current_url=safe_page_url(page))
+            notes.append(f"add_to_cart_clicked:{selector}")
+            return True, notes
+        if attempt == 0:
+            notes.extend(
+                _run_stabilization_pass(
+                    page,
+                    anchor_selectors=PRODUCT_ANCHOR_SELECTORS,
+                    wait_selectors=ADD_TO_CART_BUTTON_SELECTORS,
+                    note_prefix="add_to_cart_ui_stabilization_retry",
+                )
+            )
 
     notes.append("add_to_cart_button_not_found")
     return False, notes
@@ -756,38 +930,92 @@ def detect_checkout_entry_readiness(page: Any) -> tuple[bool | None, list[str]]:
 
 
 def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
-    ready, notes = detect_checkout_entry_readiness(page)
-    if ready is True:
-        current_url = _normalize_lower(safe_page_url(page))
-        if "checkout" in current_url or "/gp/buy/" in current_url:
-            return True, notes
-        for selector in CHECKOUT_BUTTON_SELECTORS:
-            locator = safe_locator(page, selector)
-            if locator is None:
-                continue
-            target = _first(locator)
-            visible = safe_is_visible(target)
-            if visible is False:
-                continue
-            if safe_click(target):
-                safe_wait_for_load(page)
-                notes.append("checkout_click_attempted")
+    notes: list[str] = []
+    for attempt in range(2):
+        ready, readiness_notes = detect_checkout_entry_readiness(page)
+        notes.extend(readiness_notes)
+        if ready is True:
+            current_url = _normalize_lower(safe_page_url(page))
+            if "checkout" in current_url or "/gp/buy/" in current_url:
                 return True, notes
-        notes.append("checkout_click_not_executed")
-        return False, notes
+            for selector in CHECKOUT_BUTTON_SELECTORS:
+                locator = safe_locator(page, selector)
+                if locator is None:
+                    continue
+                target = _first(locator)
+                visible = safe_is_visible(target)
+                if visible is False:
+                    continue
+                if safe_click(target):
+                    safe_wait_for_load(page)
+                    notes.append("checkout_click_attempted")
+                    return True, notes
+            notes.append("checkout_click_not_executed")
+            return False, notes
+        if attempt == 0:
+            notes.extend(
+                _run_stabilization_pass(
+                    page,
+                    anchor_selectors=CART_ANCHOR_SELECTORS,
+                    wait_selectors=CHECKOUT_BUTTON_SELECTORS,
+                    note_prefix="checkout_ui_stabilization_retry",
+                )
+            )
     return False, notes
 
 
 def extract_cart_evidence(page: Any) -> dict[str, Any]:
+    cart_items: list[dict[str, Any]] = []
     count_from_subtotal = _parse_int(
         _extract_first_text(page, ["#sc-subtotal-label-buybox", ".sc-subtotal-label-activecart"])
     )
     row_count = 0
-    for selector in ["div.sc-list-item-content", ".sc-list-item", '[data-name="Active Items"] .sc-list-item-content']:
+    for selector in CART_ROW_SELECTORS:
         locator = safe_locator(page, selector)
         if locator is None:
             continue
-        row_count = max(row_count, safe_count(locator))
+        count = safe_count(locator)
+        row_count = max(row_count, count)
+        for index in range(min(count, 12)):
+            row = _nth(locator, index)
+            title = _extract_first_text(
+                row,
+                ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
+            )
+            url = _extract_first_attr(
+                row,
+                ["a.sc-product-link", "a[href*='/dp/']", "h4 a[href]"],
+                "href",
+            )
+            if url and url.startswith("/"):
+                url = urljoin(AMAZON_HOME_URL, url)
+            price_text = _extract_first_text(
+                row,
+                ["span.sc-product-price", "span.a-offscreen", ".sc-price"],
+            )
+            quantity_text = _extract_first_text(
+                row,
+                ["span.a-dropdown-prompt", "span.sc-product-quantity", "input[name='quantityBox']"],
+            ) or safe_get_attribute(_first(safe_locator(row, "input[name='quantityBox']")) if safe_locator(row, "input[name='quantityBox']") is not None else row, "value")
+            variant_text = _extract_first_text(
+                row,
+                [".sc-product-variation", "span.a-size-small", ".a-color-secondary"],
+            )
+            merchant_item_ref = safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid")
+            item_id = merchant_item_ref or url or title or f"cart-item-{index}"
+            cart_items.append(
+                {
+                    "item_id": item_id,
+                    "title": title,
+                    "price_text": price_text,
+                    "quantity_text": quantity_text,
+                    "variant_text": variant_text,
+                    "url": url,
+                    "merchant_item_ref": merchant_item_ref,
+                }
+            )
+        if cart_items:
+            break
 
     cart_item_count = count_from_subtotal
     if cart_item_count is None and row_count > 0:
@@ -798,9 +1026,222 @@ def extract_cart_evidence(page: Any) -> dict[str, Any]:
     if cart_item_count is None:
         notes.append("cart_count_unclear")
     return {
+        "cart_items": cart_items,
         "cart_item_count": cart_item_count,
         "checkout_ready": checkout_ready,
         "notes": notes if notes else None,
+    }
+
+
+def remove_cart_item(
+    page: Any,
+    *,
+    item_id: str | None = None,
+    title: str | None = None,
+) -> tuple[bool, list[str]]:
+    notes: list[str] = []
+    item_id_norm = _normalize_lower(item_id)
+    title_norm = _normalize_lower(title)
+
+    for attempt in range(2):
+        for selector in CART_ROW_SELECTORS:
+            locator = safe_locator(page, selector)
+            if locator is None:
+                continue
+            count = safe_count(locator)
+            if count <= 0:
+                continue
+
+            for index in range(min(count, 12)):
+                row = _nth(locator, index)
+                row_item_id = _normalize_lower(safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid"))
+                row_title = _normalize_lower(
+                    _extract_first_text(
+                        row,
+                        ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
+                    )
+                )
+                if item_id_norm and row_item_id != item_id_norm:
+                    continue
+                if title_norm and title_norm not in row_title:
+                    continue
+                if not item_id_norm and not title_norm and index > 0:
+                    continue
+
+                for remove_selector in CART_REMOVE_SELECTORS:
+                    remove_locator = safe_locator(row, remove_selector)
+                    if remove_locator is None or safe_count(remove_locator) <= 0:
+                        continue
+                    if safe_click(_first(remove_locator)):
+                        safe_wait_for_load(page)
+                        notes.append(f"cart_item_removed:{remove_selector}:{index}")
+                        return True, notes
+
+                notes.append("cart_remove_control_not_found")
+                return False, notes
+        if attempt == 0:
+            notes.extend(
+                _run_stabilization_pass(
+                    page,
+                    anchor_selectors=CART_ANCHOR_SELECTORS,
+                    wait_selectors=CART_ROW_SELECTORS,
+                    note_prefix="cart_remove_ui_stabilization_retry",
+                )
+            )
+
+    notes.append("cart_item_not_found")
+    return False, notes
+
+
+def update_cart_item_quantity(
+    page: Any,
+    *,
+    item_id: str | None = None,
+    title: str | None = None,
+    quantity: int,
+) -> tuple[bool, list[str]]:
+    notes: list[str] = []
+    if quantity <= 0:
+        notes.append("invalid_quantity")
+        return False, notes
+
+    item_id_norm = _normalize_lower(item_id)
+    title_norm = _normalize_lower(title)
+
+    for attempt in range(2):
+        for selector in CART_ROW_SELECTORS:
+            locator = safe_locator(page, selector)
+            if locator is None:
+                continue
+            count = safe_count(locator)
+            if count <= 0:
+                continue
+
+            for index in range(min(count, 12)):
+                row = _nth(locator, index)
+                row_item_id = _normalize_lower(safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid"))
+                row_title = _normalize_lower(
+                    _extract_first_text(
+                        row,
+                        ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
+                    )
+                )
+                if item_id_norm and row_item_id != item_id_norm:
+                    continue
+                if title_norm and title_norm not in row_title:
+                    continue
+                if not item_id_norm and not title_norm and index > 0:
+                    continue
+
+                for quantity_selector in CART_QUANTITY_SELECTORS:
+                    quantity_locator = safe_locator(row, quantity_selector)
+                    if quantity_locator is None or safe_count(quantity_locator) <= 0:
+                        continue
+                    target = _first(quantity_locator)
+                    select_option_fn = getattr(target, "select_option", None)
+                    if callable(select_option_fn):
+                        try:
+                            select_option_fn(str(quantity))
+                            safe_wait_for_load(page)
+                            notes.append(f"cart_quantity_updated:{quantity_selector}:{quantity}")
+                            return True, notes
+                        except Exception:
+                            pass
+                    if safe_fill(target, str(quantity)):
+                        safe_press(target, "Enter")
+                        safe_wait_for_load(page)
+                        notes.append(f"cart_quantity_filled:{quantity_selector}:{quantity}")
+                        return True, notes
+
+                notes.append("cart_quantity_control_not_found")
+                return False, notes
+        if attempt == 0:
+            notes.extend(
+                _run_stabilization_pass(
+                    page,
+                    anchor_selectors=CART_ANCHOR_SELECTORS,
+                    wait_selectors=CART_ROW_SELECTORS,
+                    note_prefix="cart_quantity_ui_stabilization_retry",
+                )
+            )
+
+    notes.append("cart_item_not_found")
+    return False, notes
+
+
+def extract_latest_order_evidence(page: Any) -> dict[str, Any]:
+    current_url = safe_page_url(page)
+    page_title = safe_page_title(page)
+    notes: list[str] = []
+
+    card = None
+    for selector in ORDERS_CARD_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        card = _first(locator)
+        notes.append(f"orders_card_detected:{selector}")
+        break
+
+    scope = card or page
+    title = _extract_first_text(
+        scope,
+        [
+            "a[href*='order-details']",
+            "span.a-truncate-cut",
+            ".yohtmlc-product-title",
+            "h5 a",
+        ],
+    )
+    order_id_hint = safe_get_attribute(card, "data-order-id") if card is not None else None
+    if not order_id_hint:
+        order_id_hint = _extract_first_text(scope, ["span.order-id", "bdi", ".a-color-secondary"])
+    order_date_text = _extract_first_text(
+        scope,
+        ["span.order-info .a-color-secondary", ".order-date-invoice-item", ".a-color-secondary"],
+    )
+    shipping_stage_text = _extract_first_text(
+        scope,
+        [".shipment-progress-text", ".a-color-success", ".delivery-status", ".a-text-bold"],
+    )
+    expected_delivery_text = _extract_first_text(
+        scope,
+        [".js-delivery-text", ".a-color-base", ".delivery-box__primary-text"],
+    )
+    order_total_text = _extract_first_text(
+        scope,
+        [".a-color-price", ".order-total", ".grand-total-price"],
+    )
+    returns_entry_hint = _extract_first_attr(
+        scope,
+        ["a[href*='returns']", "a[href*='return']", "a[href*='contact-us']"],
+        "href",
+    )
+    support_entry_hint = _extract_first_attr(
+        scope,
+        ["a[href*='contact-us']", "a[href*='help']", "a[href*='support']"],
+        "href",
+    )
+    if returns_entry_hint and returns_entry_hint.startswith("/"):
+        returns_entry_hint = urljoin(AMAZON_HOME_URL, returns_entry_hint)
+    if support_entry_hint and support_entry_hint.startswith("/"):
+        support_entry_hint = urljoin(AMAZON_HOME_URL, support_entry_hint)
+
+    if current_url and "order" not in _normalize_lower(current_url):
+        notes.append("orders_url_not_confirmed")
+
+    return {
+        "order_id_hint": order_id_hint,
+        "order_date_text": order_date_text,
+        "shipping_stage_text": shipping_stage_text,
+        "expected_delivery_text": expected_delivery_text,
+        "order_total_text": order_total_text,
+        "order_card_title": title,
+        "orders_page_url": current_url,
+        "support_entry_hint": support_entry_hint,
+        "returns_entry_hint": returns_entry_hint,
+        "notes": notes or None,
+        "page_title": page_title,
     }
 
 
@@ -817,6 +1258,12 @@ def infer_page_hints(
     url = _normalize_lower(observed_url)
     title = _normalize_lower(page_title)
 
+    if "captcha" in url or "captcha" in title:
+        hints.append("captcha")
+    if "otp" in url or "otp" in title or "verification code" in title:
+        hints.append("otp")
+    if "order-history" in url or "your orders" in title:
+        hints.append("orders")
     if checkout_ready is True or "checkout" in url or "checkout" in title or "/gp/buy/" in url:
         hints.append("checkout")
     if cart_item_count is not None or "cart" in url or "cart" in title:

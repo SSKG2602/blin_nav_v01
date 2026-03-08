@@ -6,12 +6,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
 
-from app.api.routes.agent import run_agent_step_endpoint
+from app.api.routes.agent import run_agent_step
 from app.api.routes.session import (
     resolve_final_purchase_confirmation_state,
     resolve_sensitive_checkpoint_state,
 )
-from app.agent.state import HumanCheckpointResolved, SessionCloseRequested, UserIntentParsed
+from app.agent.state import (
+    ClarificationResolved,
+    HumanCheckpointResolved,
+    InterruptionRequested,
+    SessionCloseRequested,
+    UserIntentParsed,
+)
 from app.db.session import get_db
 from app.live.dependencies import get_live_speech_provider
 from app.live.localization import (
@@ -25,6 +31,7 @@ from app.llm.client import BlindNavLLMClient
 from app.llm.dependencies import get_llm_client
 from app.repositories.session_context_repo import get_session_context
 from app.repositories.session_repo import create_session, get_session
+from app.security import AuthenticatedUser, get_current_user_optional, get_websocket_authenticated_user
 from app.schemas.control_state import CheckpointStatus
 from app.schemas.intent import InterpretedUserIntent, ShoppingAction
 from app.schemas.live_session import LiveSessionCreateRequest, LiveSessionCreateResponse
@@ -33,6 +40,27 @@ from app.tools.browser_runtime import BrowserRuntimeClient
 from app.tools.dependencies import get_browser_runtime_client
 
 router = APIRouter(prefix="/api/live", tags=["live"])
+
+_AFFIRMATIVE_UTTERANCES = {
+    "yes",
+    "yeah",
+    "yep",
+    "ok",
+    "okay",
+    "continue",
+    "resume",
+    "proceed",
+    "confirm",
+}
+_NEGATIVE_UTTERANCES = {
+    "no",
+    "nope",
+    "stop",
+    "cancel",
+    "reject",
+    "do not continue",
+    "don't continue",
+}
 
 
 def _merchant_from_text(value: str | None, fallback: Merchant) -> Merchant:
@@ -79,6 +107,54 @@ def _build_user_intent_event(
     return interpreted, event
 
 
+def _normalized_text(value: str | None) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.strip().lower().split())
+
+
+def _build_clarification_resolution(
+    *,
+    text: str,
+    default_merchant: Merchant,
+    llm_client: BlindNavLLMClient,
+    clarification_request,
+) -> tuple[InterpretedUserIntent | None, ClarificationResolved]:
+    normalized = _normalized_text(text)
+    merchant = default_merchant
+
+    if normalized in _NEGATIVE_UTTERANCES or normalized.startswith("no "):
+        return None, ClarificationResolved(
+            approved=False,
+            merchant=merchant,
+            resume_state=clarification_request.resume_state,
+            resolution_notes=text.strip(),
+        )
+
+    if normalized in _AFFIRMATIVE_UTTERANCES or normalized.startswith("yes "):
+        return None, ClarificationResolved(
+            approved=True,
+            merchant=merchant,
+            resume_state=clarification_request.resume_state,
+            resolution_notes=text.strip(),
+        )
+
+    interpreted = llm_client.interpret_user_intent(text)
+    merchant = _merchant_from_text(interpreted.merchant, default_merchant)
+    follow_up_query = text.strip()
+    if interpreted.product_intent is not None and interpreted.product_intent.raw_query:
+        follow_up_query = interpreted.product_intent.raw_query
+
+    return interpreted, ClarificationResolved(
+        approved=True,
+        follow_up_intent=_map_action_to_intent(interpreted.action),
+        follow_up_query=follow_up_query,
+        merchant=merchant,
+        resume_state=clarification_request.resume_state,
+        resolution_notes=text.strip(),
+    )
+
+
 async def _send_event(websocket: WebSocket, event: str, data: dict[str, Any]) -> None:
     await websocket.send_json({"event": event, "data": data})
 
@@ -121,6 +197,24 @@ async def _emit_control_state_events(
     context = get_session_context(db, session_id)
     if context is None:
         return
+
+    if (
+        context.latest_clarification_request is not None
+        and context.latest_clarification_request.status == "PENDING"
+    ):
+        localized_prompt = localize_prompt_text(
+            context.latest_clarification_request.prompt_to_user,
+            locale,
+        )
+        await _send_event(
+            websocket,
+            "clarification_required",
+            {
+                **context.latest_clarification_request.model_dump(mode="json"),
+                "locale": locale,
+                "message": localized_prompt or context.latest_clarification_request.prompt_to_user,
+            },
+        )
 
     if (
         context.latest_sensitive_checkpoint is not None
@@ -200,14 +294,18 @@ async def _emit_agent_step_bundle(
 def create_live_session_endpoint(
     payload: LiveSessionCreateRequest,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
 ) -> LiveSessionCreateResponse:
-    normalized_locale = normalize_locale(payload.locale)
+    normalized_locale = normalize_locale(
+        payload.locale or (current_user.profile.preferred_locale if current_user is not None else None)
+    )
     created = create_session(
         db,
         SessionCreate(
             merchant=payload.merchant,
-            locale=normalized_locale,
+            locale=normalized_locale or (current_user.profile.preferred_locale if current_user is not None else None),
         ),
+        user_id=current_user.profile.user_id if current_user is not None else None,
     )
     return LiveSessionCreateResponse(
         session_id=created.session_id,
@@ -225,9 +323,19 @@ async def live_session_stream(
     llm_client: BlindNavLLMClient = Depends(get_llm_client),
     speech_provider: LiveSpeechProvider = Depends(get_live_speech_provider),
 ) -> None:
+    current_user = get_websocket_authenticated_user(db=db, websocket=websocket)
     session = get_session(db, session_id)
     if session is None:
         await websocket.close(code=4404)
+        return
+    if (
+        session.user_id is not None
+        and (
+            current_user is None
+            or session.user_id != current_user.profile.user_id
+        )
+    ):
+        await websocket.close(code=4403)
         return
 
     default_locale = normalize_locale(session.locale)
@@ -281,10 +389,37 @@ async def live_session_stream(
             continue
 
         if event_type == "interrupt":
+            try:
+                step_response = run_agent_step(
+                    session_id=session_id,
+                    event=InterruptionRequested(
+                        reason="Live user interruption requested.",
+                    ),
+                    db=db,
+                    browser_client=browser_client,
+                    llm_client=llm_client,
+                )
+            except HTTPException as exc:
+                await _send_event(
+                    websocket,
+                    "error",
+                    {"detail": str(exc.detail), "locale": locale},
+                )
+                continue
+
             await _send_event(
                 websocket,
                 "interrupted",
                 {"message": localize_message("interrupted", locale), "locale": locale},
+            )
+            await _emit_agent_step_bundle(
+                websocket,
+                db=db,
+                session_id=session_id,
+                locale=locale,
+                speech_provider=speech_provider,
+                step_response=step_response,
+                fallback_text=localize_message("interrupted", locale),
             )
             continue
 
@@ -323,7 +458,7 @@ async def live_session_stream(
                 },
             )
             try:
-                step_response = run_agent_step_endpoint(
+                step_response = run_agent_step(
                     session_id=session_id,
                     event=HumanCheckpointResolved(approved=approved),
                     db=db,
@@ -389,7 +524,7 @@ async def live_session_stream(
                 },
             )
             try:
-                step_response = run_agent_step_endpoint(
+                step_response = run_agent_step(
                     session_id=session_id,
                     event=HumanCheckpointResolved(approved=approved),
                     db=db,
@@ -462,7 +597,7 @@ async def live_session_stream(
             user_text = raw_text.strip()
         elif event_type == "cancel":
             try:
-                step_response = run_agent_step_endpoint(
+                step_response = run_agent_step(
                     session_id=session_id,
                     event=SessionCloseRequested(),
                     db=db,
@@ -497,24 +632,50 @@ async def live_session_stream(
             )
             continue
 
-        interpreted_intent, agent_event = _build_user_intent_event(
-            text=user_text,
-            default_merchant=session.merchant,
-            llm_client=llm_client,
+        context = get_session_context(db, session_id)
+        pending_clarification = (
+            context.latest_clarification_request
+            if context is not None and context.latest_clarification_request is not None
+            else None
         )
-        await _send_event(
-            websocket,
-            "interpreted_intent",
-            interpreted_intent.model_dump(mode="json"),
-        )
+        interpreted_intent: InterpretedUserIntent | None = None
+        if pending_clarification is not None and pending_clarification.status == "PENDING":
+            interpreted_intent, agent_event = _build_clarification_resolution(
+                text=user_text,
+                default_merchant=session.merchant,
+                llm_client=llm_client,
+                clarification_request=pending_clarification,
+            )
+            await _send_event(
+                websocket,
+                "clarification_resolved",
+                {
+                    "approved": agent_event.approved,
+                    "resume_state": agent_event.resume_state,
+                    "locale": locale,
+                    "message": "Clarification response received.",
+                },
+            )
+        else:
+            interpreted_intent, agent_event = _build_user_intent_event(
+                text=user_text,
+                default_merchant=session.merchant,
+                llm_client=llm_client,
+            )
+            await _send_event(
+                websocket,
+                "interpreted_intent",
+                interpreted_intent.model_dump(mode="json"),
+            )
 
         try:
-            step_response = run_agent_step_endpoint(
+            step_response = run_agent_step(
                 session_id=session_id,
                 event=agent_event,
                 db=db,
                 browser_client=browser_client,
                 llm_client=llm_client,
+                interpreted_intent=interpreted_intent,
             )
         except HTTPException as exc:
             await _send_event(
@@ -531,5 +692,9 @@ async def live_session_stream(
             locale=locale,
             speech_provider=speech_provider,
             step_response=step_response,
-            fallback_text=interpreted_intent.spoken_confirmation,
+            fallback_text=(
+                interpreted_intent.spoken_confirmation
+                if interpreted_intent is not None
+                else "Clarification processed."
+            ),
         )

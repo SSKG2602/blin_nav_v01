@@ -31,6 +31,31 @@ _LOOKALIKE_PATTERNS = (
 )
 
 _RATING_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
+_POSITIVE_REVIEW_TOKENS = (
+    "good",
+    "great",
+    "excellent",
+    "worth",
+    "fresh",
+    "healthy",
+    "liked",
+    "love",
+    "works",
+    "fast delivery",
+)
+_NEGATIVE_REVIEW_TOKENS = (
+    "bad",
+    "poor",
+    "smell",
+    "broken",
+    "stale",
+    "late",
+    "damaged",
+    "fake",
+    "expired",
+    "not as described",
+    "wrong item",
+)
 
 
 def _safe_text(value: str | None) -> str:
@@ -155,6 +180,26 @@ def _candidate_for_reviews(page: PageUnderstanding | None) -> ProductCandidate |
     return None
 
 
+def _review_snippets(candidate: ProductCandidate | None) -> list[str]:
+    if candidate is None:
+        return []
+    return [snippet.strip() for snippet in candidate.review_snippets if isinstance(snippet, str) and snippet.strip()]
+
+
+def _extract_review_signals(snippets: list[str]) -> tuple[list[str], list[str], list[str]]:
+    positives: list[str] = []
+    negatives: list[str] = []
+    recurring_issues: list[str] = []
+    for snippet in snippets:
+        lowered = snippet.lower()
+        if any(token in lowered for token in _POSITIVE_REVIEW_TOKENS):
+            positives.append(snippet)
+        if any(token in lowered for token in _NEGATIVE_REVIEW_TOKENS):
+            negatives.append(snippet)
+            recurring_issues.append(snippet)
+    return positives[:3], negatives[:3], recurring_issues[:3]
+
+
 def _parse_rating(value: str | None) -> float | None:
     text = _safe_text(value)
     if not text:
@@ -194,6 +239,8 @@ def derive_review_assessment(
     review_count_text = candidate.review_count_text if candidate is not None else None
     rating_value = _parse_rating(rating_text)
     review_count = _parse_review_count(review_count_text)
+    review_snippets = _review_snippets(candidate)
+    positive_signals, negative_signals, recurring_issues = _extract_review_signals(review_snippets)
     notes: list[str] = []
 
     has_ambiguity_from_multimodal = False
@@ -203,18 +250,27 @@ def derive_review_assessment(
             for note in multimodal_assessment.ambiguity_notes
         )
 
-    if rating_value is None and review_count is None:
+    has_conflicting_snippets = bool(positive_signals and negative_signals)
+
+    if rating_value is None and review_count is None and not review_snippets:
         level = ReviewConflictLevel.UNKNOWN
         confidence = 0.25
         notes.append("Review signals are unavailable.")
-    elif has_ambiguity_from_multimodal:
+    elif has_ambiguity_from_multimodal or has_conflicting_snippets:
         level = ReviewConflictLevel.HIGH
-        confidence = 0.55
-        notes.append("Multimodal ambiguity notes include review conflict signals.")
+        confidence = 0.68 if has_conflicting_snippets else 0.55
+        if has_conflicting_snippets:
+            notes.append("Review snippets contain both positive and negative signals.")
+        if has_ambiguity_from_multimodal:
+            notes.append("Multimodal ambiguity notes include review conflict signals.")
     elif rating_value is not None and rating_value < 3.4:
         level = ReviewConflictLevel.HIGH
         confidence = 0.72 if review_count and review_count >= 40 else 0.6
         notes.append("Rating appears low for product confidence.")
+    elif negative_signals and not positive_signals:
+        level = ReviewConflictLevel.MEDIUM
+        confidence = 0.63
+        notes.append("Available review snippets contain recurring complaints.")
     elif rating_value is not None and rating_value < 4.1:
         level = ReviewConflictLevel.MEDIUM
         confidence = 0.62
@@ -228,12 +284,21 @@ def derive_review_assessment(
         confidence = 0.76
         notes.append("Rating and review volume appear consistent.")
 
+    snippet_summary_parts: list[str] = []
+    if positive_signals:
+        snippet_summary_parts.append(f"Positives: {' | '.join(positive_signals[:2])}.")
+    if negative_signals:
+        snippet_summary_parts.append(f"Negatives: {' | '.join(negative_signals[:2])}.")
+
     if level == ReviewConflictLevel.HIGH:
-        summary = "Review signals look risky or conflicting. Please confirm before proceeding."
+        summary = "Review signals look risky or conflicting. " + " ".join(snippet_summary_parts)
     elif level == ReviewConflictLevel.MEDIUM:
-        summary = "Review signals are mixed. A confirmation checkpoint is recommended."
+        summary = "Review signals are mixed. " + " ".join(snippet_summary_parts)
     elif level == ReviewConflictLevel.LOW:
-        summary = "Review signals look generally consistent, but final confirmation is still advised."
+        summary = (
+            "Review signals look generally consistent, but final confirmation is still advised. "
+            + " ".join(snippet_summary_parts)
+        ).strip()
     else:
         summary = "I do not have enough review evidence to assess conflicts safely yet."
 
@@ -241,8 +306,12 @@ def derive_review_assessment(
         conflict_level=level,
         rating_text=rating_text,
         review_count_text=review_count_text,
-        review_summary_spoken=summary,
+        review_summary_spoken=" ".join(summary.split()),
         conflict_notes=notes,
+        positive_signals=positive_signals,
+        negative_signals=negative_signals,
+        recurring_issues=recurring_issues,
+        cited_snippets=review_snippets[:3],
         confidence=confidence,
     )
 

@@ -40,10 +40,22 @@ class AgentCommandExecutor:
         if command.type == AgentCommandType.INSPECT_PRODUCT_PAGE:
             page_type_value = payload.get("page_type")
             page_type = page_type_value if isinstance(page_type_value, str) else None
-            self._browser.inspect_product_page(
-                session_id=session_id,
-                page_type=page_type,
-            )
+            candidate_url_value = payload.get("candidate_url")
+            candidate_title_value = payload.get("candidate_title")
+            candidate_url = candidate_url_value if isinstance(candidate_url_value, str) else None
+            candidate_title = candidate_title_value if isinstance(candidate_title_value, str) else None
+            try:
+                self._browser.inspect_product_page(
+                    session_id=session_id,
+                    page_type=page_type,
+                    candidate_url=candidate_url,
+                    candidate_title=candidate_title,
+                )
+            except TypeError:
+                self._browser.inspect_product_page(
+                    session_id=session_id,
+                    page_type=page_type,
+                )
             return
 
         if command.type == AgentCommandType.SELECT_PRODUCT_VARIANT:

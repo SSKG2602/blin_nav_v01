@@ -4,23 +4,32 @@ import { useEffect, useRef, useState } from "react";
 import {
   buildLiveWebSocketUrl,
   createLiveSession,
+  getCurrentUser,
   getCheckpoint,
+  loadLatestOrderSnapshot,
+  login,
+  persistAuthToken,
   getRuntimeObservation,
   getRuntimeScreenshot,
   getSessionContext,
   listSessions,
+  removeCartItem,
   resolveCheckpoint,
-  resolveFinalConfirmation
+  resolveFinalConfirmation,
+  signup,
+  updateCartQuantity
 } from "@/services/api";
 import type {
   AgentStepResponse,
+  ClarificationRequest,
   LiveGatewayEvent,
   RuntimeObservation,
   RuntimeScreenshot,
   SessionContextSnapshot,
   SessionSummary,
   SensitiveCheckpoint,
-  TranscriptItem
+  TranscriptItem,
+  UserProfile
 } from "@/lib/types";
 import {
   getSpeechRecognitionConstructor,
@@ -73,6 +82,7 @@ function stopMediaStream(stream: MediaStream | null) {
 export function useDemoShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
+  const wakeRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -90,12 +100,20 @@ export function useDemoShell() {
   const [inputText, setInputText] = useState("");
   const [context, setContext] = useState<SessionContextSnapshot | null>(null);
   const [checkpoint, setCheckpoint] = useState<SensitiveCheckpoint | null>(null);
+  const [clarification, setClarification] = useState<ClarificationRequest | null>(null);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [sessionHistory, setSessionHistory] = useState<SessionSummary[]>([]);
   const [runtimeObservation, setRuntimeObservation] = useState<RuntimeObservation | null>(null);
   const [runtimeScreenshot, setRuntimeScreenshot] = useState<RuntimeScreenshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authDisplayName, setAuthDisplayName] = useState("");
+  const [wakePhraseEnabled, setWakePhraseEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -135,6 +153,7 @@ export function useDemoShell() {
     try {
       const ctx = await getSessionContext(id);
       setContext(ctx);
+      setClarification(ctx.latest_clarification_request ?? null);
       if (ctx.latest_sensitive_checkpoint) {
         setCheckpoint(ctx.latest_sensitive_checkpoint);
       } else {
@@ -193,8 +212,16 @@ export function useDemoShell() {
     setListening(false);
   };
 
+  const stopWakePhraseListener = () => {
+    if (wakeRecognitionRef.current) {
+      wakeRecognitionRef.current.stop();
+      wakeRecognitionRef.current = null;
+    }
+  };
+
   const closeConnection = () => {
     stopListening();
+    stopWakePhraseListener();
     stopSpeechPlayback();
     if (wsRef.current) {
       wsRef.current.close();
@@ -214,12 +241,70 @@ export function useDemoShell() {
         Boolean(navigator.mediaDevices?.getUserMedia) &&
         typeof MediaRecorder !== "undefined"
     );
+    void (async () => {
+      try {
+        const auth = await getCurrentUser();
+        setCurrentUser(auth.profile);
+        if (auth.profile.preferred_locale) {
+          setLocale(safeLocale(auth.profile.preferred_locale));
+        }
+      } catch {
+        persistAuthToken(null);
+      }
+    })();
     void refreshSessionHistory();
     return () => {
       closeConnection();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!wakePhraseEnabled || connected || connecting || listening) {
+      stopWakePhraseListener();
+      return;
+    }
+    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
+    if (!SpeechRecognitionCtor) {
+      return;
+    }
+    const recognition = new SpeechRecognitionCtor();
+    wakeRecognitionRef.current = recognition;
+    recognition.lang = safeLocale(locale);
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
+      const phrase = event.results?.[0]?.[0]?.transcript?.trim().toLowerCase() ?? "";
+      if (!phrase) {
+        return;
+      }
+      if (
+        phrase.includes("wake luminar") ||
+        phrase.includes("hey luminar") ||
+        phrase.includes("luminar wake")
+      ) {
+        appendTranscript(makeTranscript("system", "Wake phrase detected. Starting live session."));
+        stopWakePhraseListener();
+        void startLiveSession();
+      }
+    };
+    recognition.onerror = () => {
+      stopWakePhraseListener();
+    };
+    recognition.onend = () => {
+      if (wakeRecognitionRef.current === recognition) {
+        wakeRecognitionRef.current = null;
+      }
+    };
+    recognition.start();
+    return () => {
+      if (wakeRecognitionRef.current === recognition) {
+        recognition.stop();
+        wakeRecognitionRef.current = null;
+      }
+    };
+  }, [wakePhraseEnabled, connected, connecting, listening, locale]);
 
   const playSpokenPayload = async (data: Record<string, unknown>) => {
     stopSpeechPlayback();
@@ -327,6 +412,48 @@ export function useDemoShell() {
           : null;
       appendTranscript(
         makeTranscript("warning", localizedMessage || incoming.prompt_to_user || "Checkpoint required.")
+      );
+      if (sessionId) {
+        void refreshContext(sessionId);
+      }
+      return;
+    }
+
+    if (payload.event === "clarification_required") {
+      const incoming = payload.data as unknown as ClarificationRequest;
+      setClarification(incoming);
+      const localizedMessage =
+        typeof payload.data.message === "string" && payload.data.message
+          ? payload.data.message
+          : null;
+      appendTranscript(
+        makeTranscript(
+          "warning",
+          localizedMessage || incoming.prompt_to_user || "Clarification is required before continuing."
+        )
+      );
+      if (sessionId) {
+        void refreshContext(sessionId);
+      }
+      return;
+    }
+
+    if (payload.event === "clarification_resolved") {
+      setClarification((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: typeof payload.data.approved === "boolean" && !payload.data.approved ? "REJECTED" : "APPROVED"
+            }
+          : prev
+      );
+      appendTranscript(
+        makeTranscript(
+          "system",
+          typeof payload.data.message === "string" && payload.data.message
+            ? payload.data.message
+            : "Clarification response sent."
+        )
       );
       if (sessionId) {
         void refreshContext(sessionId);
@@ -452,6 +579,71 @@ export function useDemoShell() {
       setConnecting(false);
       setWakeActive(false);
     }
+  };
+
+  const handleAuthSuccess = (profile: UserProfile, token: string) => {
+    persistAuthToken(token);
+    setCurrentUser(profile);
+    if (profile.preferred_locale) {
+      setLocale(safeLocale(profile.preferred_locale));
+    }
+  };
+
+  const loginUser = async () => {
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setError("Email and password are required.");
+      return;
+    }
+    setAuthBusy(true);
+    setError(null);
+    try {
+      const response = await login({
+        email: authEmail.trim(),
+        password: authPassword
+      });
+      handleAuthSuccess(response.profile, response.token);
+      setAuthPassword("");
+      appendTranscript(makeTranscript("system", `Signed in as ${response.profile.display_name}.`));
+      await refreshSessionHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signupUser = async () => {
+    if (!authEmail.trim() || !authPassword.trim() || !authDisplayName.trim()) {
+      setError("Display name, email, and password are required.");
+      return;
+    }
+    setAuthBusy(true);
+    setError(null);
+    try {
+      const response = await signup({
+        email: authEmail.trim(),
+        displayName: authDisplayName.trim(),
+        password: authPassword,
+        preferredLocale: safeLocale(locale)
+      });
+      handleAuthSuccess(response.profile, response.token);
+      setAuthPassword("");
+      appendTranscript(makeTranscript("system", `Account created for ${response.profile.display_name}.`));
+      await refreshSessionHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Signup failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logoutUser = () => {
+    persistAuthToken(null);
+    closeConnection();
+    setCurrentUser(null);
+    setSessionHistory([]);
+    appendTranscript(makeTranscript("system", "Signed out of demo profile."));
+    void refreshSessionHistory();
   };
 
   const sendUserText = () => {
@@ -677,8 +869,96 @@ export function useDemoShell() {
     }
   };
 
+  const respondToClarification = (approved: boolean) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    ws.send(
+      JSON.stringify({
+        type: "user_text",
+        text: approved ? "yes" : "no",
+        locale: safeLocale(locale)
+      })
+    );
+    appendTranscript(
+      makeTranscript("user", approved ? "yes" : "no")
+    );
+  };
+
+  const removeCartLine = async (itemId?: string | null, title?: string | null) => {
+    if (!sessionId) {
+      return;
+    }
+    try {
+      await removeCartItem({
+        sessionId,
+        itemId,
+        title
+      });
+      appendTranscript(
+        makeTranscript("system", `Requested cart removal for ${title ?? itemId ?? "selected item"}.`)
+      );
+      await refreshContext(sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove cart item.");
+    }
+  };
+
+  const updateCartLineQuantity = async (
+    quantity: number,
+    itemId?: string | null,
+    title?: string | null
+  ) => {
+    if (!sessionId) {
+      return;
+    }
+    try {
+      await updateCartQuantity({
+        sessionId,
+        itemId,
+        title,
+        quantity
+      });
+      appendTranscript(
+        makeTranscript(
+          "system",
+          `Updated quantity for ${title ?? itemId ?? "selected item"} to ${quantity}.`
+        )
+      );
+      await refreshContext(sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update cart quantity.");
+    }
+  };
+
+  const fetchLatestOrderSnapshot = async () => {
+    if (!sessionId) {
+      return;
+    }
+    try {
+      await loadLatestOrderSnapshot(sessionId);
+      appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
+      await refreshContext(sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load latest order snapshot.");
+    }
+  };
+
   return {
     sessionId,
+    currentUser,
+    authBusy,
+    authMode,
+    setAuthMode,
+    authEmail,
+    setAuthEmail,
+    authPassword,
+    setAuthPassword,
+    authDisplayName,
+    setAuthDisplayName,
+    wakePhraseEnabled,
+    setWakePhraseEnabled,
     wakeActive,
     connected,
     connecting,
@@ -689,6 +969,7 @@ export function useDemoShell() {
     setInputText,
     context,
     checkpoint,
+    clarification,
     transcript,
     eventLog,
     sessionHistory,
@@ -702,13 +983,21 @@ export function useDemoShell() {
     finalConfirmationPending:
       context?.latest_final_purchase_confirmation?.required === true &&
       context?.latest_final_purchase_confirmation?.confirmed !== true,
+    clarificationPending: clarification?.status === "PENDING",
     finalConfirmation: context?.latest_final_purchase_confirmation ?? null,
+    loginUser,
+    signupUser,
+    logoutUser,
     startLiveSession,
     startListening,
     stopListening,
     sendUserText,
     sendInterrupt,
     sendCancel,
+    respondToClarification,
+    removeCartLine,
+    updateCartLineQuantity,
+    fetchLatestOrderSnapshot,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

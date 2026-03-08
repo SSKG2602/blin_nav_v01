@@ -92,11 +92,15 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
         *,
         session_id: UUID,
         page_type: str | None,
+        candidate_url: str | None = None,
+        candidate_title: str | None = None,
     ) -> None:
         self._post(
             f"/sessions/{session_id}/actions/inspect_product_page",
             {
                 "page_type": page_type,
+                "candidate_url": candidate_url,
+                "candidate_title": candidate_title,
             },
         )
 
@@ -154,6 +158,38 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             {},
         )
 
+    def remove_cart_item(
+        self,
+        *,
+        session_id: UUID,
+        item_id: str | None = None,
+        title: str | None = None,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/remove_cart_item",
+            {
+                "item_id": item_id,
+                "title": title,
+            },
+        )
+
+    def update_cart_quantity(
+        self,
+        *,
+        session_id: UUID,
+        item_id: str | None = None,
+        title: str | None = None,
+        quantity: int,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/update_cart_quantity",
+            {
+                "item_id": item_id,
+                "title": title,
+                "quantity": quantity,
+            },
+        )
+
     def perform_checkout(
         self,
         *,
@@ -171,6 +207,16 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
     ) -> None:
         self._post(
             f"/sessions/{session_id}/actions/finalize_purchase",
+            {},
+        )
+
+    def navigate_orders_history(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/navigate_orders_history",
             {},
         )
 

@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.schemas.agent_log import AgentLogEntry
+from app.schemas.clarification import ClarificationKind, ClarificationOption
 from app.schemas.review_analysis import ReviewConflictLevel
 from app.schemas.session import Merchant
 from app.schemas.trust_verification import TrustStatus
@@ -15,6 +16,7 @@ from app.schemas.trust_verification import TrustStatus
 class AgentState(str, Enum):
     SESSION_INITIALIZING = "SESSION_INITIALIZING"
     TRUST_CHECK = "TRUST_CHECK"
+    CLARIFICATION_REQUIRED = "CLARIFICATION_REQUIRED"
     UI_STABILIZING = "UI_STABILIZING"
     SEARCHING_PRODUCTS = "SEARCHING_PRODUCTS"
     EVALUATING_RESULTS = "EVALUATING_RESULTS"
@@ -36,6 +38,7 @@ class AgentState(str, Enum):
 class AgentCommandType(str, Enum):
     CALL_LLM_FOR_INTENT = "CALL_LLM_FOR_INTENT"
     RUN_TRUST_CHECK = "RUN_TRUST_CHECK"
+    REQUEST_CLARIFICATION = "REQUEST_CLARIFICATION"
     NAVIGATE_TO_SEARCH_RESULTS = "NAVIGATE_TO_SEARCH_RESULTS"
     INSPECT_PRODUCT_PAGE = "INSPECT_PRODUCT_PAGE"
     SELECT_PRODUCT_VARIANT = "SELECT_PRODUCT_VARIANT"
@@ -63,6 +66,30 @@ class UserIntentParsed(BaseModel):
     intent: str = "search_products"
     query: str | None = None
     merchant: Merchant | None = None
+
+
+class ClarificationNeeded(BaseModel):
+    event_type: Literal["clarification_needed"] = "clarification_needed"
+    kind: ClarificationKind = ClarificationKind.INTENT_COMPLETENESS
+    reason: str
+    prompt_to_user: str
+    original_user_goal: str | None = None
+    candidate_summary: str | None = None
+    candidate_options: list[ClarificationOption] = Field(default_factory=list)
+    expected_fields: list[str] = Field(default_factory=list)
+    resume_state: str | None = None
+
+
+class ClarificationResolved(BaseModel):
+    event_type: Literal["clarification_resolved"] = "clarification_resolved"
+    approved: bool = True
+    follow_up_intent: str | None = None
+    follow_up_query: str | None = None
+    merchant: Merchant | None = None
+    resume_state: str | None = None
+    candidate_url: str | None = None
+    candidate_title: str | None = None
+    resolution_notes: str | None = None
 
 
 class NavResult(BaseModel):
@@ -112,6 +139,11 @@ class SessionCloseRequested(BaseModel):
     event_type: Literal["session_close_requested"] = "session_close_requested"
 
 
+class InterruptionRequested(BaseModel):
+    event_type: Literal["interruption_requested"] = "interruption_requested"
+    reason: str | None = None
+
+
 class TrustCheckResult(BaseModel):
     event_type: Literal["trust_check_result"] = "trust_check_result"
     status: TrustStatus = TrustStatus.UNVERIFIED
@@ -135,6 +167,8 @@ class PostPurchaseObserved(BaseModel):
 
 AgentEvent = Annotated[
     UserIntentParsed
+    | ClarificationNeeded
+    | ClarificationResolved
     | TrustCheckResult
     | NavResult
     | VerificationResult
@@ -145,6 +179,7 @@ AgentEvent = Annotated[
     | ToolError
     | RecoveryTriggered
     | PostPurchaseObserved
+    | InterruptionRequested
     | SessionCloseRequested,
     Field(discriminator="event_type"),
 ]

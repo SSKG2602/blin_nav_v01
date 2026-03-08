@@ -18,4 +18,8 @@ class ReviewAssessment(BaseModel):
     review_count_text: str | None = None
     review_summary_spoken: str
     conflict_notes: list[str] = Field(default_factory=list)
+    positive_signals: list[str] = Field(default_factory=list)
+    negative_signals: list[str] = Field(default_factory=list)
+    recurring_issues: list[str] = Field(default_factory=list)
+    cited_snippets: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)

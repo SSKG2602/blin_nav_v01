@@ -25,6 +25,9 @@ from app.tools.dependencies import get_browser_runtime_client
 class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.stage = "home"
+        self.search_observation_override: dict[str, Any] | None = None
+        self.product_observation_override: dict[str, Any] | None = None
 
     def navigate_to_search_results(
         self,
@@ -41,20 +44,26 @@ class FakeBrowserRuntimeClient:
                 "merchant": merchant,
             }
         )
+        self.stage = "search"
 
     def inspect_product_page(
         self,
         *,
         session_id: UUID,
         page_type: str | None,
+        candidate_url: str | None = None,
+        candidate_title: str | None = None,
     ) -> None:
         self.calls.append(
             {
                 "method": "inspect_product_page",
                 "session_id": session_id,
                 "page_type": page_type,
+                "candidate_url": candidate_url,
+                "candidate_title": candidate_title,
             }
         )
+        self.stage = "product"
 
     def verify_product_variant(
         self,
@@ -99,6 +108,7 @@ class FakeBrowserRuntimeClient:
                 "session_id": session_id,
             }
         )
+        self.stage = "cart"
 
     def review_cart(self, *, session_id: UUID) -> None:
         self.calls.append(
@@ -107,6 +117,7 @@ class FakeBrowserRuntimeClient:
                 "session_id": session_id,
             }
         )
+        self.stage = "cart"
 
     def perform_checkout(self, *, session_id: UUID) -> None:
         self.calls.append(
@@ -115,6 +126,7 @@ class FakeBrowserRuntimeClient:
                 "session_id": session_id,
             }
         )
+        self.stage = "checkout"
 
     def finalize_purchase(self, *, session_id: UUID) -> None:
         self.calls.append(
@@ -139,13 +151,85 @@ class FakeBrowserRuntimeClient:
         )
 
     def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
-        return {}
+        if self.stage == "search":
+            if self.search_observation_override is not None:
+                return dict(self.search_observation_override)
+            return {
+                "observed_url": "https://www.amazon.in/s?k=dog+food",
+                "page_title": "Amazon.in : dog food",
+                "detected_page_hints": ["search_results"],
+                "product_candidates": [
+                    {
+                        "title": "Dog treats combo pack",
+                        "price_text": "₹499",
+                        "url": "https://www.amazon.in/dp/B0BAD",
+                    },
+                    {
+                        "title": "Pedigree adult dog food 3kg",
+                        "price_text": "₹799",
+                        "url": "https://www.amazon.in/dp/B0GOOD",
+                        "rating_text": "4.4 out of 5 stars",
+                        "review_count_text": "1234 ratings",
+                        "variant_text": "3kg",
+                    },
+                ],
+            }
+        if self.stage == "product":
+            if self.product_observation_override is not None:
+                return dict(self.product_observation_override)
+            return {
+                "observed_url": "https://www.amazon.in/dp/B0GOOD",
+                "page_title": "Pedigree adult dog food 3kg",
+                "detected_page_hints": ["product_detail"],
+                "primary_product": {
+                    "title": "Pedigree adult dog food 3kg",
+                    "price_text": "₹799",
+                    "rating_text": "4.4 out of 5 stars",
+                    "review_count_text": "1234 ratings",
+                    "variant_text": "3kg",
+                },
+            }
+        if self.stage == "cart":
+            return {
+                "observed_url": "https://www.amazon.in/gp/cart/view.html",
+                "page_title": "Shopping Cart",
+                "detected_page_hints": ["cart"],
+                "cart_item_count": 1,
+                "checkout_ready": True,
+                "cart_items": [
+                    {
+                        "item_id": "item-1",
+                        "title": "Pedigree adult dog food 3kg",
+                        "price_text": "₹799",
+                        "quantity_text": "1",
+                    }
+                ],
+                "primary_product": {
+                    "title": "Pedigree adult dog food 3kg",
+                    "price_text": "₹799",
+                },
+            }
+        if self.stage == "checkout":
+            return {
+                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+                "page_title": "Checkout",
+                "detected_page_hints": ["checkout"],
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree adult dog food 3kg",
+                    "price_text": "₹799",
+                },
+            }
+        return {"observed_url": "https://www.amazon.in", "page_title": "Amazon.in"}
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return {}
 
 
 class FakeLLMClient:
+    def __init__(self) -> None:
+        self.multimodal_decision = MultimodalDecision.PROCEED
+
     def summarize_page_and_verification(self, page, verification) -> str:
         return "Fallback summary from fake llm."
 
@@ -157,18 +241,19 @@ class FakeLLMClient:
         verification,
         spoken_summary: str | None = None,
     ) -> MultimodalAssessment:
+        decision = self.multimodal_decision
         return MultimodalAssessment(
-            decision=MultimodalDecision.REQUIRE_USER_CONFIRMATION,
+            decision=decision,
             confidence=0.55,
             confidence_band=ConfidenceBand.MEDIUM,
-            needs_user_confirmation=True,
-            needs_sensitive_checkpoint=False,
-            should_halt_low_confidence=False,
+            needs_user_confirmation=decision == MultimodalDecision.REQUIRE_USER_CONFIRMATION,
+            needs_sensitive_checkpoint=decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
+            should_halt_low_confidence=decision == MultimodalDecision.HALT_LOW_CONFIDENCE,
             ambiguity_notes=["Test fake multimodal output."],
             trust_notes=["Test context available."],
             review_notes=["Verification pending."],
-            reasoning_summary="Need user confirmation in test harness.",
-            recommended_next_step="ask_user_confirmation",
+            reasoning_summary=f"FakeLLMClient decision: {decision.value}",
+            recommended_next_step="continue",
             notes="FakeLLMClient multimodal output.",
         )
 
@@ -225,7 +310,7 @@ def client(testing_session_local, fake_browser_client: FakeBrowserRuntimeClient)
     app.dependency_overrides.clear()
 
 
-def test_agent_step_happy_path_multi_step(
+def test_agent_step_closes_happy_path_from_single_user_intent(
     client: TestClient,
     testing_session_local,
     fake_browser_client: FakeBrowserRuntimeClient,
@@ -234,53 +319,32 @@ def test_agent_step_happy_path_multi_step(
     session_id = created["session_id"]
     session_uuid = UUID(session_id)
 
-    steps = [
-        (
-            {
-                "event_type": "user_intent_parsed",
-                "intent": "search_products",
-                "query": "dog food",
-                "merchant": "amazon.in",
-            },
-            "SEARCHING_PRODUCTS",
-            "NAVIGATE_TO_SEARCH_RESULTS",
-        ),
-        (
-            {
-                "event_type": "nav_result",
-                "success": True,
-                "confidence": 0.9,
-                "page_type": "search_results",
-            },
-            "VIEWING_PRODUCT_DETAIL",
-            "INSPECT_PRODUCT_PAGE",
-        ),
-        (
-            {
-                "event_type": "verification_result",
-                "success": True,
-            },
-            "CART_VERIFICATION",
-            "REVIEW_CART",
-        ),
-        (
-            {
-                "event_type": "checkout_progress",
-                "proceed_to_checkout": True,
-            },
-            "CHECKOUT_FLOW",
-            "PERFORM_CHECKOUT",
-        ),
+    response = client.post(
+        f"/api/sessions/{session_id}/agent/step",
+        json={
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "dog food 3kg",
+            "merchant": "amazon.in",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["new_state"] == "FINAL_CONFIRMATION"
+    assert data["spoken_summary"]
+    assert [
+        command["type"] for command in data["commands"]
+    ] == [
+        "RUN_TRUST_CHECK",
+        "NAVIGATE_TO_SEARCH_RESULTS",
+        "INSPECT_PRODUCT_PAGE",
+        "SELECT_PRODUCT_VARIANT",
+        "ANALYZE_REVIEWS",
+        "ADD_TO_CART",
+        "REVIEW_CART",
+        "PERFORM_CHECKOUT",
+        "REQUEST_FINAL_CONFIRMATION",
     ]
-
-    for payload, expected_state, expected_command in steps:
-        response = client.post(f"/api/sessions/{session_id}/agent/step", json=payload)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["new_state"] == expected_state
-        assert data["spoken_summary"]
-        assert data["commands"]
-        assert any(command["type"] == expected_command for command in data["commands"])
 
     assert [call["method"] for call in fake_browser_client.calls] == [
         "navigate_to_search_results",
@@ -290,16 +354,155 @@ def test_agent_step_happy_path_multi_step(
         "review_cart",
         "perform_checkout",
     ]
-    assert fake_browser_client.calls[0]["query"] == "dog food"
+    assert fake_browser_client.calls[0]["query"] == "dog food 3kg"
     assert fake_browser_client.calls[0]["merchant"] == Merchant.AMAZON
+    assert fake_browser_client.calls[1]["candidate_url"] == "https://www.amazon.in/dp/B0GOOD"
+    assert fake_browser_client.calls[2]["size_hint"] == "3kg"
 
     with testing_session_local() as db:
         logs = list_agent_logs_for_session(db, session_uuid)
-        assert len(logs) >= len(steps)
+        assert len(logs) >= 5
 
         session = get_session(db, session_uuid)
         assert session is not None
         assert session.status in {SessionStatus.ACTIVE, SessionStatus.ENDED}
+
+
+def test_agent_step_requests_product_selection_clarification_for_similar_candidates(
+    client: TestClient,
+    fake_browser_client: FakeBrowserRuntimeClient,
+) -> None:
+    fake_browser_client.search_observation_override = {
+        "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food",
+        "page_title": "Amazon.in : pedigree dog food",
+        "detected_page_hints": ["search_results"],
+        "product_candidates": [
+            {
+                "title": "Pedigree Puppy Dry Dog Food 3kg",
+                "price_text": "₹849",
+                "url": "https://www.amazon.in/dp/B0PUPPY",
+                "rating_text": "4.4 out of 5 stars",
+                "review_count_text": "812 ratings",
+                "brand_text": "Pedigree",
+            },
+            {
+                "title": "Pedigree Adult Dry Dog Food 3kg",
+                "price_text": "₹799",
+                "url": "https://www.amazon.in/dp/B0ADULT",
+                "rating_text": "4.5 out of 5 stars",
+                "review_count_text": "1024 ratings",
+                "brand_text": "Pedigree",
+            },
+        ],
+    }
+
+    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    session_id = created["session_id"]
+
+    response = client.post(
+        f"/api/sessions/{session_id}/agent/step",
+        json={
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "pedigree dog food 3kg",
+            "merchant": "amazon.in",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["new_state"] == "CLARIFICATION_REQUIRED"
+    assert [call["method"] for call in fake_browser_client.calls] == ["navigate_to_search_results"]
+
+    context = client.get(f"/api/sessions/{session_id}/context").json()
+    clarification = context["latest_clarification_request"]
+    assert clarification["kind"] == "PRODUCT_SELECTION"
+    assert len(clarification["candidate_options"]) == 2
+    candidate_urls = {option["candidate_url"] for option in clarification["candidate_options"]}
+    assert candidate_urls == {
+        "https://www.amazon.in/dp/B0ADULT",
+        "https://www.amazon.in/dp/B0PUPPY",
+    }
+    assert any(option.get("difference_summary") for option in clarification["candidate_options"])
+
+
+def test_agent_step_approved_product_selection_opens_bound_candidate(
+    client: TestClient,
+    fake_browser_client: FakeBrowserRuntimeClient,
+) -> None:
+    fake_browser_client.search_observation_override = {
+        "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food",
+        "page_title": "Amazon.in : pedigree dog food",
+        "detected_page_hints": ["search_results"],
+        "product_candidates": [
+            {
+                "title": "Pedigree Adult Dry Dog Food 3kg",
+                "price_text": "₹799",
+                "url": "https://www.amazon.in/dp/B0ADULT",
+                "rating_text": "4.5 out of 5 stars",
+                "review_count_text": "1024 ratings",
+                "brand_text": "Pedigree",
+            },
+            {
+                "title": "Pedigree Puppy Dry Dog Food 3kg",
+                "price_text": "₹849",
+                "url": "https://www.amazon.in/dp/B0PUPPY",
+                "rating_text": "4.4 out of 5 stars",
+                "review_count_text": "812 ratings",
+                "brand_text": "Pedigree",
+            },
+        ],
+    }
+    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    session_id = created["session_id"]
+
+    first = client.post(
+        f"/api/sessions/{session_id}/agent/step",
+        json={
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "pedigree dog food 3kg",
+            "merchant": "amazon.in",
+        },
+    )
+    assert first.status_code == 200
+    assert first.json()["new_state"] == "CLARIFICATION_REQUIRED"
+    clarification = client.get(f"/api/sessions/{session_id}/context").json()["latest_clarification_request"]
+    selected_option = clarification["candidate_options"][0]
+    fake_browser_client.product_observation_override = {
+        "observed_url": selected_option["candidate_url"],
+        "page_title": selected_option["title"],
+        "detected_page_hints": ["product_detail"],
+        "primary_product": {
+            "title": selected_option["title"],
+            "price_text": selected_option["price_text"],
+            "rating_text": "4.6 out of 5 stars",
+            "review_count_text": "1450 ratings",
+            "variant_text": "3kg",
+            "brand_text": "Pedigree",
+            "review_snippets": [
+                "Dogs liked the food and the pack looked fresh.",
+                "Most buyers say the product quality feels consistent.",
+            ],
+        },
+    }
+
+    second = client.post(
+        f"/api/sessions/{session_id}/agent/step",
+        json={
+            "event_type": "clarification_resolved",
+            "approved": True,
+            "resume_state": "SEARCHING_PRODUCTS",
+        },
+    )
+    assert second.status_code == 200
+    follow_up = second.json()
+    assert any(command["type"] == "INSPECT_PRODUCT_PAGE" for command in follow_up["commands"])
+    assert follow_up["new_state"] in {"VIEWING_PRODUCT_DETAIL", "REVIEW_ANALYSIS", "CLARIFICATION_REQUIRED", "FINAL_CONFIRMATION"}
+
+    inspect_calls = [call for call in fake_browser_client.calls if call["method"] == "inspect_product_page"]
+    assert inspect_calls
+    assert inspect_calls[0]["candidate_url"] == selected_option["candidate_url"]
 
 
 def test_agent_step_returns_404_for_missing_session(

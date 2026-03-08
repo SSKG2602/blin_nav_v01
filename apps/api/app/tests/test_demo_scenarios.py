@@ -203,6 +203,26 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
     browser.queue_observations(
         [
             {
+                "observed_url": "https://www.amazon.in",
+                "page_title": "Amazon.in",
+                "detected_page_hints": ["home"],
+            },
+            {
+                "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food+3kg",
+                "page_title": "Results",
+                "detected_page_hints": ["search_results"],
+                "product_candidates": [
+                    {
+                        "title": "Pedigree dog food 3kg",
+                        "price_text": "₹799",
+                        "url": "https://www.amazon.in/dp/B0HAPPYCASE",
+                        "rating_text": "4.4 out of 5 stars",
+                        "review_count_text": "12,345 ratings",
+                        "variant_text": "3kg",
+                    }
+                ],
+            },
+            {
                 "observed_url": "https://www.amazon.in/dp/B0HAPPYCASE",
                 "page_title": "Pedigree dog food 3kg",
                 "detected_page_hints": ["product_detail"],
@@ -211,8 +231,60 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
                     "price_text": "₹799",
                     "rating_text": "4.4 out of 5 stars",
                     "review_count_text": "12,345 ratings",
+                    "variant_text": "3kg",
                 },
-            }
+            },
+            {
+                "observed_url": "https://www.amazon.in/dp/B0HAPPYCASE",
+                "page_title": "Pedigree dog food 3kg",
+                "detected_page_hints": ["product_detail"],
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                    "rating_text": "4.4 out of 5 stars",
+                    "review_count_text": "12,345 ratings",
+                    "variant_text": "3kg",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/cart/view.html",
+                "page_title": "Shopping Cart",
+                "detected_page_hints": ["cart"],
+                "cart_item_count": 1,
+                "checkout_ready": True,
+                "cart_items": [
+                    {
+                        "item_id": "cart-item-1",
+                        "title": "Pedigree dog food 3kg",
+                        "price_text": "₹799",
+                        "quantity_text": "1",
+                    }
+                ],
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+                "page_title": "Checkout",
+                "detected_page_hints": ["checkout"],
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+                "page_title": "Checkout",
+                "detected_page_hints": ["checkout"],
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
         ]
     )
 
@@ -227,7 +299,7 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
             "merchant": "amazon.in",
         },
     )
-    assert step["new_state"] == "SEARCHING_PRODUCTS"
+    assert step["new_state"] == "FINAL_CONFIRMATION"
     assert step["commands"]
 
     context = _context(client, session_id)
@@ -238,6 +310,8 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
     assert context["latest_low_confidence_status"]["active"] is False
     assert context["latest_recovery_status"]["active"] is False
     assert context["latest_sensitive_checkpoint"] is None
+    assert context["latest_final_purchase_confirmation"]["required"] is True
+    assert context["latest_cart_snapshot"]["cart_item_count"] == 1
 
 
 def test_demo_ambiguous_product_scenario(scenario_env) -> None:
@@ -422,19 +496,98 @@ def test_demo_post_purchase_summary_scenario(scenario_env) -> None:
     browser.queue_observations(
         [
             {
+                "observed_url": "https://www.amazon.in",
+                "page_title": "Amazon.in",
+                "detected_page_hints": ["home"],
+            },
+            {
+                "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food+3kg",
+                "page_title": "Results",
+                "detected_page_hints": ["search_results"],
+                "product_candidates": [
+                    {
+                        "title": "Pedigree dog food 3kg",
+                        "price_text": "₹799",
+                        "url": "https://www.amazon.in/dp/B0POSTPURCHASE",
+                        "variant_text": "3kg",
+                    }
+                ],
+            },
+            {
+                "observed_url": "https://www.amazon.in/dp/B0POSTPURCHASE",
+                "page_title": "Pedigree dog food 3kg",
+                "detected_page_hints": ["product_detail"],
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/dp/B0POSTPURCHASE",
+                "page_title": "Pedigree dog food 3kg",
+                "detected_page_hints": ["product_detail"],
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/cart/view.html",
+                "page_title": "Shopping Cart",
+                "detected_page_hints": ["cart"],
+                "cart_item_count": 1,
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+                "page_title": "Checkout",
+                "detected_page_hints": ["checkout"],
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
+                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+                "page_title": "Checkout",
+                "detected_page_hints": ["checkout"],
+                "checkout_ready": True,
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+            },
+            {
                 "observed_url": "https://www.amazon.in/order-confirmation",
                 "page_title": "Thank you, your order has been placed",
-                "detected_page_hints": ["product_detail"],
+                "detected_page_hints": ["checkout"],
                 "delivery_window_text": "Delivery by Monday",
                 "primary_product": {
                     "title": "Pedigree dog food 3kg",
                     "price_text": "₹799",
                 },
+                "notes": "order_confirmation_detected",
+            },
+            {
+                "observed_url": "https://www.amazon.in/order-confirmation",
+                "page_title": "Thank you, your order has been placed",
+                "detected_page_hints": ["checkout"],
+                "delivery_window_text": "Delivery by Monday",
+                "primary_product": {
+                    "title": "Pedigree dog food 3kg",
+                    "price_text": "₹799",
+                },
+                "notes": "order_confirmation_detected",
             }
         ]
     )
     session_id = _create_session(client)
-    _run_user_step(
+    step = _run_user_step(
         client,
         session_id,
         {
@@ -444,6 +597,12 @@ def test_demo_post_purchase_summary_scenario(scenario_env) -> None:
             "merchant": "amazon.in",
         },
     )
+    assert step["new_state"] == "FINAL_CONFIRMATION"
+    resolve = client.post(
+        f"/api/sessions/{session_id}/final-confirmation/resolve",
+        json={"approved": True, "resolution_notes": "approved in post-purchase scenario"},
+    )
+    assert resolve.status_code == 200
     context = _context(client, session_id)
     assert context["latest_post_purchase_summary"] is not None
     assert "order appears placed" in context["latest_post_purchase_summary"]["spoken_summary"].lower()

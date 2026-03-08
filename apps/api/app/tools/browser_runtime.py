@@ -21,6 +21,8 @@ class BrowserRuntimeClient(Protocol):
         *,
         session_id: UUID,
         page_type: str | None,
+        candidate_url: str | None = None,
+        candidate_title: str | None = None,
     ) -> None:
         ...
 
@@ -58,6 +60,25 @@ class BrowserRuntimeClient(Protocol):
     ) -> None:
         ...
 
+    def remove_cart_item(
+        self,
+        *,
+        session_id: UUID,
+        item_id: str | None = None,
+        title: str | None = None,
+    ) -> None:
+        ...
+
+    def update_cart_quantity(
+        self,
+        *,
+        session_id: UUID,
+        item_id: str | None = None,
+        title: str | None = None,
+        quantity: int,
+    ) -> None:
+        ...
+
     def perform_checkout(
         self,
         *,
@@ -66,6 +87,13 @@ class BrowserRuntimeClient(Protocol):
         ...
 
     def finalize_purchase(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        ...
+
+    def navigate_orders_history(
         self,
         *,
         session_id: UUID,

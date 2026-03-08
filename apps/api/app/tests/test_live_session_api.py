@@ -352,6 +352,10 @@ def test_live_websocket_interrupt_audio_and_cancel_flow(client: TestClient) -> N
         websocket.send_json({"type": "interrupt"})
         interrupted = websocket.receive_json()
         assert interrupted["event"] == "interrupted"
+        interrupt_follow_ups = [websocket.receive_json() for _ in range(3)]
+        interrupt_names = {event["event"] for event in interrupt_follow_ups}
+        assert "agent_step" in interrupt_names
+        assert "clarification_required" in interrupt_names
 
         websocket.send_json(
             {
@@ -363,8 +367,9 @@ def test_live_websocket_interrupt_audio_and_cancel_flow(client: TestClient) -> N
         transcription = websocket.receive_json()
         assert transcription["event"] == "transcription"
         assert transcription["data"]["text"] == "search dog food"
-        events = [websocket.receive_json() for _ in range(3)]
+        events = [websocket.receive_json() for _ in range(4)]
         names = {event["event"] for event in events}
+        assert "clarification_resolved" in names
         assert "agent_step" in names
 
         websocket.send_json({"type": "cancel"})

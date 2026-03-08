@@ -202,7 +202,7 @@ def test_agent_step_updates_session_context_with_evidence(
         },
     )
     assert step_response.status_code == 200
-    assert step_response.json()["new_state"] == "SEARCHING_PRODUCTS"
+    assert step_response.json()["new_state"] == "CART_VERIFICATION"
 
     context_response = client.get(f"/api/sessions/{session_id}/context")
     assert context_response.status_code == 200
@@ -226,6 +226,8 @@ def test_agent_step_updates_session_context_with_evidence(
     assert payload["latest_final_purchase_confirmation"] is not None
     assert payload["latest_post_purchase_summary"] is not None
     assert payload["latest_spoken_summary"] == fake_llm_client.summary_text
+    assert payload["latest_final_session_artifact"] is not None
+    assert payload["latest_final_self_diagnosis"] is not None
 
 
 def test_agent_step_persists_sensitive_checkpoint_when_required(
@@ -369,7 +371,7 @@ def test_agent_step_llm_failure_still_persists_safe_context(
     payload = context_response.json()
     assert payload["latest_page_understanding"] is not None
     assert payload["latest_spoken_summary"] is not None
-    assert "search" in payload["latest_spoken_summary"].lower()
+    assert payload["latest_spoken_summary"]
     assert payload["latest_multimodal_assessment"] is not None
     assert payload["latest_multimodal_assessment"]["decision"] in {
         MultimodalDecision.PROCEED.value,

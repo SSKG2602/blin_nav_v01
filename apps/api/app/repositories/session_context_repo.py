@@ -8,18 +8,23 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.models.session import SessionContextORM, SessionORM
+from app.schemas.cart_context import CartSnapshot
+from app.schemas.clarification import ClarificationRequest
 from app.schemas.control_state import (
     LowConfidenceStatus,
     RecoveryStatus,
     SensitiveCheckpointRequest,
 )
 from app.schemas.intent import InterpretedUserIntent
+from app.schemas.interruption import InterruptionMarker
 from app.schemas.multimodal_assessment import MultimodalAssessment
+from app.schemas.order_support import LatestOrderSnapshot
 from app.schemas.page_understanding import PageUnderstanding
 from app.schemas.purchase_support import FinalPurchaseConfirmation, PostPurchaseSummary
 from app.schemas.review_analysis import ReviewAssessment
 from app.schemas.product_verification import ProductIntentSpec, ProductVerificationResult
 from app.schemas.session_context import SessionContextSnapshot
+from app.schemas.session_closure import FinalSelfDiagnosis, FinalSessionArtifact
 from app.schemas.trust_verification import TrustAssessment
 
 _UNSET = object()
@@ -103,6 +108,19 @@ def _coerce_sensitive_checkpoint(value: Any) -> SensitiveCheckpointRequest | Non
     return None
 
 
+def _coerce_clarification_request(value: Any) -> ClarificationRequest | None:
+    if value is None:
+        return None
+    if isinstance(value, ClarificationRequest):
+        return value
+    if isinstance(value, dict):
+        try:
+            return ClarificationRequest.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
 def _coerce_low_confidence_status(value: Any) -> LowConfidenceStatus | None:
     if value is None:
         return None
@@ -124,6 +142,19 @@ def _coerce_recovery_status(value: Any) -> RecoveryStatus | None:
     if isinstance(value, dict):
         try:
             return RecoveryStatus.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
+def _coerce_interruption_marker(value: Any) -> InterruptionMarker | None:
+    if value is None:
+        return None
+    if isinstance(value, InterruptionMarker):
+        return value
+    if isinstance(value, dict):
+        try:
+            return InterruptionMarker.model_validate(value)
         except ValidationError:
             return None
     return None
@@ -181,6 +212,58 @@ def _coerce_post_purchase_summary(value: Any) -> PostPurchaseSummary | None:
     return None
 
 
+def _coerce_cart_snapshot(value: Any) -> CartSnapshot | None:
+    if value is None:
+        return None
+    if isinstance(value, CartSnapshot):
+        return value
+    if isinstance(value, dict):
+        try:
+            return CartSnapshot.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
+def _coerce_order_snapshot(value: Any) -> LatestOrderSnapshot | None:
+    if value is None:
+        return None
+    if isinstance(value, LatestOrderSnapshot):
+        return value
+    if isinstance(value, dict):
+        try:
+            return LatestOrderSnapshot.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
+def _coerce_final_session_artifact(value: Any) -> FinalSessionArtifact | None:
+    if value is None:
+        return None
+    if isinstance(value, FinalSessionArtifact):
+        return value
+    if isinstance(value, dict):
+        try:
+            return FinalSessionArtifact.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
+def _coerce_final_self_diagnosis(value: Any) -> FinalSelfDiagnosis | None:
+    if value is None:
+        return None
+    if isinstance(value, FinalSelfDiagnosis):
+        return value
+    if isinstance(value, dict):
+        try:
+            return FinalSelfDiagnosis.model_validate(value)
+        except ValidationError:
+            return None
+    return None
+
+
 def _intent_to_json(value: InterpretedUserIntent | dict[str, Any] | None) -> dict[str, Any] | None:
     if value is None:
         return None
@@ -216,11 +299,17 @@ def _to_snapshot(row: SessionContextORM) -> SessionContextSnapshot:
         latest_sensitive_checkpoint=_coerce_sensitive_checkpoint(
             row.latest_sensitive_checkpoint_json
         ),
+        latest_clarification_request=_coerce_clarification_request(
+            row.latest_clarification_request_json
+        ),
         latest_low_confidence_status=_coerce_low_confidence_status(
             row.latest_low_confidence_status_json
         ),
         latest_recovery_status=_coerce_recovery_status(
             row.latest_recovery_status_json
+        ),
+        latest_interruption_marker=_coerce_interruption_marker(
+            row.latest_interruption_marker_json
         ),
         latest_trust_assessment=_coerce_trust_assessment(
             row.latest_trust_assessment_json
@@ -233,6 +322,18 @@ def _to_snapshot(row: SessionContextORM) -> SessionContextSnapshot:
         ),
         latest_post_purchase_summary=_coerce_post_purchase_summary(
             row.latest_post_purchase_summary_json
+        ),
+        latest_cart_snapshot=_coerce_cart_snapshot(
+            row.latest_cart_snapshot_json
+        ),
+        latest_order_snapshot=_coerce_order_snapshot(
+            row.latest_order_snapshot_json
+        ),
+        latest_final_session_artifact=_coerce_final_session_artifact(
+            row.latest_final_session_artifact_json
+        ),
+        latest_final_self_diagnosis=_coerce_final_self_diagnosis(
+            row.latest_final_self_diagnosis_json
         ),
         latest_spoken_summary=row.latest_spoken_summary,
         updated_at=row.updated_at,
@@ -276,12 +377,18 @@ def update_session_context(
     latest_verification: ProductVerificationResult | None | object = _UNSET,
     latest_multimodal_assessment: MultimodalAssessment | None | object = _UNSET,
     latest_sensitive_checkpoint: SensitiveCheckpointRequest | None | object = _UNSET,
+    latest_clarification_request: ClarificationRequest | None | object = _UNSET,
     latest_low_confidence_status: LowConfidenceStatus | None | object = _UNSET,
     latest_recovery_status: RecoveryStatus | None | object = _UNSET,
+    latest_interruption_marker: InterruptionMarker | None | object = _UNSET,
     latest_trust_assessment: TrustAssessment | None | object = _UNSET,
     latest_review_assessment: ReviewAssessment | None | object = _UNSET,
     latest_final_purchase_confirmation: FinalPurchaseConfirmation | None | object = _UNSET,
     latest_post_purchase_summary: PostPurchaseSummary | None | object = _UNSET,
+    latest_cart_snapshot: CartSnapshot | None | object = _UNSET,
+    latest_order_snapshot: LatestOrderSnapshot | None | object = _UNSET,
+    latest_final_session_artifact: FinalSessionArtifact | None | object = _UNSET,
+    latest_final_self_diagnosis: FinalSelfDiagnosis | None | object = _UNSET,
     latest_spoken_summary: str | None | object = _UNSET,
 ) -> SessionContextSnapshot:
     _ensure_session_exists(db, session_id)
@@ -316,6 +423,12 @@ def update_session_context(
             if latest_sensitive_checkpoint is not _UNSET
             else None
         )
+    if latest_clarification_request is not _UNSET:
+        row.latest_clarification_request_json = _model_to_json(
+            latest_clarification_request
+            if latest_clarification_request is not _UNSET
+            else None
+        )
     if latest_low_confidence_status is not _UNSET:
         row.latest_low_confidence_status_json = _model_to_json(
             latest_low_confidence_status
@@ -326,6 +439,12 @@ def update_session_context(
         row.latest_recovery_status_json = _model_to_json(
             latest_recovery_status
             if latest_recovery_status is not _UNSET
+            else None
+        )
+    if latest_interruption_marker is not _UNSET:
+        row.latest_interruption_marker_json = _model_to_json(
+            latest_interruption_marker
+            if latest_interruption_marker is not _UNSET
             else None
         )
     if latest_trust_assessment is not _UNSET:
@@ -350,6 +469,30 @@ def update_session_context(
         row.latest_post_purchase_summary_json = _model_to_json(
             latest_post_purchase_summary
             if latest_post_purchase_summary is not _UNSET
+            else None
+        )
+    if latest_cart_snapshot is not _UNSET:
+        row.latest_cart_snapshot_json = _model_to_json(
+            latest_cart_snapshot
+            if latest_cart_snapshot is not _UNSET
+            else None
+        )
+    if latest_order_snapshot is not _UNSET:
+        row.latest_order_snapshot_json = _model_to_json(
+            latest_order_snapshot
+            if latest_order_snapshot is not _UNSET
+            else None
+        )
+    if latest_final_session_artifact is not _UNSET:
+        row.latest_final_session_artifact_json = _model_to_json(
+            latest_final_session_artifact
+            if latest_final_session_artifact is not _UNSET
+            else None
+        )
+    if latest_final_self_diagnosis is not _UNSET:
+        row.latest_final_self_diagnosis_json = _model_to_json(
+            latest_final_self_diagnosis
+            if latest_final_self_diagnosis is not _UNSET
             else None
         )
     if latest_spoken_summary is not _UNSET:

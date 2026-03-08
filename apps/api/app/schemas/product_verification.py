@@ -28,7 +28,10 @@ class ProductVerificationResult(BaseModel):
     matched_fields: list[str] = Field(default_factory=list)
     mismatched_fields: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
+    expected_variant_text: str | None = None
+    selected_variant_text: str | None = None
+    available_variant_options: list[str] = Field(default_factory=list)
+    comparison_summary: str | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     user_safe_summary: str
     notes: str | None = None
-

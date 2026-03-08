@@ -7,6 +7,13 @@ export type CheckpointStatus =
   | "CANCELLED"
   | "EXPIRED";
 
+export type ClarificationStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "PROVIDED_INPUT"
+  | "CANCELLED";
+
 export type MultimodalDecision =
   | "PROCEED"
   | "REQUIRE_USER_CONFIRMATION"
@@ -18,6 +25,20 @@ export interface SessionSummary {
   merchant: string;
   status: SessionStatus;
   created_at: string;
+  owner_display_name?: string | null;
+}
+
+export interface UserProfile {
+  user_id: string;
+  email: string;
+  display_name: string;
+  preferred_locale?: string | null;
+  created_at?: string | null;
+}
+
+export interface AuthSessionResponse {
+  token: string;
+  profile: UserProfile;
 }
 
 export interface AgentCommand {
@@ -50,6 +71,30 @@ export interface SensitiveCheckpoint {
   resolution_notes?: string | null;
 }
 
+export interface ClarificationRequest {
+  clarification_id: string;
+  kind: string;
+  status: ClarificationStatus;
+  reason: string;
+  prompt_to_user: string;
+  original_user_goal?: string | null;
+  candidate_summary?: string | null;
+  candidate_options?: Array<{
+    label: string;
+    title: string;
+    price_text?: string | null;
+    variant_text?: string | null;
+    difference_summary?: string | null;
+    candidate_url?: string | null;
+  }>;
+  expected_fields: string[];
+  resume_state?: string | null;
+  clarified_response?: string | null;
+  resolution_notes?: string | null;
+  created_at?: string | null;
+  resolved_at?: string | null;
+}
+
 export interface SessionContextSnapshot {
   session_id: string;
   latest_intent?: Record<string, unknown> | null;
@@ -71,6 +116,7 @@ export interface SessionContextSnapshot {
     notes?: string | null;
   } | null;
   latest_sensitive_checkpoint?: SensitiveCheckpoint | null;
+  latest_clarification_request?: ClarificationRequest | null;
   latest_low_confidence_status?: {
     active: boolean;
     reason?: string | null;
@@ -93,6 +139,10 @@ export interface SessionContextSnapshot {
     review_summary_spoken: string;
     confidence: number;
     conflict_notes: string[];
+    positive_signals: string[];
+    negative_signals: string[];
+    recurring_issues: string[];
+    cited_snippets: string[];
   } | null;
   latest_final_purchase_confirmation?: {
     required: boolean;
@@ -109,6 +159,67 @@ export interface SessionContextSnapshot {
     spoken_summary: string;
     notes?: string | null;
   } | null;
+  latest_order_snapshot?: {
+    order_id_hint?: string | null;
+    order_date_text?: string | null;
+    shipping_stage_text?: string | null;
+    expected_delivery_text?: string | null;
+    order_total_text?: string | null;
+    order_card_title?: string | null;
+    orders_page_url?: string | null;
+    support_entry_hint?: string | null;
+    returns_entry_hint?: string | null;
+    spoken_summary: string;
+    notes?: string | null;
+  } | null;
+  latest_final_session_artifact?: {
+    original_goal?: string | null;
+    clarified_goal?: string | null;
+    chosen_product?: string | null;
+    chosen_variant?: string | null;
+    quantity_text?: string | null;
+    merchant?: string | null;
+    trust_status?: string | null;
+    warnings: string[];
+    important_actions: Array<{
+      state: string;
+      summary: string;
+      created_at?: string | null;
+    }>;
+    spoken_summary?: string | null;
+    completed_at?: string | null;
+  } | null;
+  latest_final_self_diagnosis?: {
+    ready_to_close: boolean;
+    unresolved_items: string[];
+    fallback_heavy_steps: string[];
+    confidence_warnings: string[];
+    summary: string;
+  } | null;
+  latest_cart_snapshot?: {
+    cart_item_count?: number | null;
+    checkout_ready?: boolean | null;
+    currency_text?: string | null;
+    notes?: string | null;
+    items: Array<{
+      item_id: string;
+      title?: string | null;
+      price_text?: string | null;
+      quantity_text?: string | null;
+      variant_text?: string | null;
+      url?: string | null;
+      merchant_item_ref?: string | null;
+      notes?: string | null;
+    }>;
+  } | null;
+  latest_interruption_marker?: {
+    active: boolean;
+    interrupted_at?: string | null;
+    prior_state?: string | null;
+    reason?: string | null;
+    latest_user_utterance?: string | null;
+    resume_summary?: string | null;
+  } | null;
   latest_spoken_summary?: string | null;
   updated_at?: string | null;
 }
@@ -124,6 +235,7 @@ export interface RuntimeObservation {
   detected_page_hints: string[];
   product_candidates: Record<string, unknown>[];
   primary_product?: Record<string, unknown> | null;
+  cart_items?: Record<string, unknown>[];
   cart_item_count?: number | null;
   checkout_ready?: boolean | null;
   notes?: string | null;

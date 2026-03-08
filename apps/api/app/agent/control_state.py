@@ -13,6 +13,7 @@ from app.schemas.control_state import (
 from app.schemas.multimodal_assessment import MultimodalAssessment, MultimodalDecision
 from app.schemas.page_understanding import PageType, PageUnderstanding
 from app.schemas.product_verification import ProductVerificationResult
+from app.agent.state import AgentState
 
 
 def _infer_checkpoint_kind(
@@ -26,12 +27,25 @@ def _infer_checkpoint_kind(
     notes = (page.notes or "").lower()
     combined = f"{title} {notes}"
 
-    if "otp" in combined:
+    if "otp" in combined or "verification code" in combined or "one-time code" in combined:
         return SensitiveCheckpointKind.OTP
     if "captcha" in combined:
         return SensitiveCheckpointKind.CAPTCHA
     if "address" in combined:
         return SensitiveCheckpointKind.ADDRESS_CONFIRMATION
+    if "payment_auth_required" in combined or "cvv" in combined or "upi" in combined:
+        return SensitiveCheckpointKind.PAYMENT_CONFIRMATION
+    if (
+        verification is not None
+        and (page.page_type == PageType.CHECKOUT or page.checkout_ready is True)
+        and (
+            "checkout_anchor_present" in combined
+            or "place order" in combined
+            or "submit order" in combined
+            or "payment" in combined
+        )
+    ):
+        return SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
     if "payment" in combined or page.page_type == PageType.CHECKOUT:
         if verification is not None:
             return SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
@@ -61,16 +75,30 @@ def derive_sensitive_checkpoint(
     verification: ProductVerificationResult | None,
     previous_checkpoint: SensitiveCheckpointRequest | None = None,
 ) -> SensitiveCheckpointRequest | None:
-    if multimodal_assessment is None:
-        return None
-
-    if not (
-        multimodal_assessment.decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT
-        or multimodal_assessment.needs_sensitive_checkpoint
-    ):
-        return None
-
+    multimodal_requires_checkpoint = bool(
+        multimodal_assessment is not None
+        and (
+            multimodal_assessment.decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT
+            or multimodal_assessment.needs_sensitive_checkpoint
+        )
+    )
     kind = _infer_checkpoint_kind(page, verification)
+    explicit_page_checkpoint = kind in {
+        SensitiveCheckpointKind.OTP,
+        SensitiveCheckpointKind.CAPTCHA,
+        SensitiveCheckpointKind.PAYMENT_CONFIRMATION,
+        SensitiveCheckpointKind.ADDRESS_CONFIRMATION,
+    }
+
+    if not multimodal_requires_checkpoint and not explicit_page_checkpoint:
+        return None
+
+    if (
+        previous_checkpoint is not None
+        and previous_checkpoint.kind == kind
+        and previous_checkpoint.status == CheckpointStatus.PENDING
+    ):
+        return previous_checkpoint
     if (
         previous_checkpoint is not None
         and previous_checkpoint.kind == kind
@@ -78,10 +106,16 @@ def derive_sensitive_checkpoint(
     ):
         return previous_checkpoint
 
+    reason = None
+    if multimodal_assessment is not None:
+        reason = multimodal_assessment.reasoning_summary
+    if not reason:
+        reason = f"Detected {kind.value.lower().replace('_', ' ')} checkpoint on the current page."
+
     return SensitiveCheckpointRequest(
         kind=kind,
         status=CheckpointStatus.PENDING,
-        reason=multimodal_assessment.reasoning_summary,
+        reason=reason,
         prompt_to_user=_checkpoint_prompt(kind),
         created_at=datetime.utcnow(),
         resolved_at=None,
@@ -132,12 +166,26 @@ def derive_low_confidence_status(
 
 def derive_recovery_status(
     *,
+    current_state: AgentState,
     multimodal_assessment: MultimodalAssessment | None,
     page: PageUnderstanding | None,
     low_confidence_status: LowConfidenceStatus | None,
 ) -> RecoveryStatus:
     now = datetime.utcnow()
     page_notes = (page.notes or "").lower() if page is not None else ""
+    observed_page_type = page.page_type.value if page is not None else None
+
+    expected_by_state = {
+        AgentState.SEARCHING_PRODUCTS: {PageType.SEARCH_RESULTS},
+        AgentState.VIEWING_PRODUCT_DETAIL: {PageType.PRODUCT_DETAIL},
+        AgentState.REVIEW_ANALYSIS: {PageType.PRODUCT_DETAIL},
+        AgentState.CART_VERIFICATION: {PageType.CART},
+        AgentState.CHECKOUT_FLOW: {PageType.CHECKOUT, PageType.CART},
+        AgentState.CHECKPOINT_SENSITIVE_ACTION: {PageType.CHECKOUT},
+        AgentState.ASSISTED_MODE: {PageType.CHECKOUT, PageType.CART},
+        AgentState.UI_STABILIZING: {PageType.SEARCH_RESULTS, PageType.CART, PageType.HOME},
+    }
+    expected_page_types = expected_by_state.get(current_state, set())
 
     if "modal" in page_notes or "popup" in page_notes or "captcha" in page_notes:
         return RecoveryStatus(
@@ -145,6 +193,32 @@ def derive_recovery_status(
             recovery_kind=RecoveryKind.MODAL_INTERRUPTION,
             reason="Page indicates modal interruption signals.",
             last_attempt_summary="Attempt modal dismissal and re-sync page understanding.",
+            expected_state=current_state.value,
+            observed_page_type=observed_page_type,
+            recovery_outcome="pending_modal_clearance",
+            last_updated_at=now,
+        )
+
+    if (
+        page is not None
+        and expected_page_types
+        and page.page_type not in expected_page_types
+        and page.confidence >= 0.55
+        and (
+            "weak_page_evidence" in page_notes
+            or current_state == AgentState.UI_STABILIZING
+        )
+    ):
+        return RecoveryStatus(
+            active=True,
+            recovery_kind=RecoveryKind.PAGE_DESYNC,
+            reason=(
+                f"Observed page type {page.page_type.value} does not match expected state {current_state.value}."
+            ),
+            last_attempt_summary="Re-anchor to the last stable page for the intended state.",
+            expected_state=current_state.value,
+            observed_page_type=page.page_type.value,
+            recovery_outcome="pending_reconciliation",
             last_updated_at=now,
         )
 
@@ -154,6 +228,9 @@ def derive_recovery_status(
             recovery_kind=RecoveryKind.PAGE_DESYNC,
             reason="Page understanding confidence is too low.",
             last_attempt_summary="Run navigation recovery to a known stable page.",
+            expected_state=current_state.value,
+            observed_page_type=page.page_type.value,
+            recovery_outcome="weak_page_evidence",
             last_updated_at=now,
         )
 
@@ -168,6 +245,9 @@ def derive_recovery_status(
             recovery_kind=RecoveryKind.CHECKOUT_BLOCKED,
             reason=low_confidence_status.reason or "Low confidence while entering checkout.",
             last_attempt_summary="Back out to cart/home and request explicit confirmation.",
+            expected_state=current_state.value,
+            observed_page_type=observed_page_type,
+            recovery_outcome="checkout_blocked",
             last_updated_at=now,
         )
 
@@ -181,6 +261,9 @@ def derive_recovery_status(
             recovery_kind=RecoveryKind.NAVIGATION_RECOVERY,
             reason=multimodal_assessment.reasoning_summary,
             last_attempt_summary=multimodal_assessment.recommended_next_step,
+            expected_state=current_state.value,
+            observed_page_type=observed_page_type,
+            recovery_outcome="low_confidence_navigation_recovery",
             last_updated_at=now,
         )
 
@@ -189,5 +272,8 @@ def derive_recovery_status(
         recovery_kind=None,
         reason=None,
         last_attempt_summary=None,
+        expected_state=current_state.value,
+        observed_page_type=observed_page_type,
+        recovery_outcome="stable",
         last_updated_at=None,
     )

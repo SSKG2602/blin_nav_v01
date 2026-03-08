@@ -13,6 +13,7 @@ from browser_runtime.automation.helpers import (
     action_guard,
     add_current_product_to_cart,
     choose_best_product_candidate,
+    collect_semantic_page_signals,
     dismiss_common_interruptions,
     extract_cart_evidence,
     extract_product_detail_evidence,
@@ -185,6 +186,29 @@ def test_dismiss_common_interruptions_fails_safely() -> None:
     page = FakePage(fail_locator=True)
     notes = dismiss_common_interruptions(page)
     assert notes == []
+
+
+def test_collect_semantic_page_signals_detects_checkpoint_and_structure_anchors() -> None:
+    page = FakePage(
+        url="https://www.amazon.in/gp/buy/spc/handlers/display.html",
+        selectors={
+            "input#captchacharacters": [{"visible": True}],
+            "input[name*='otp']": [{"visible": True}],
+            "input[name*='cvv']": [{"visible": True}],
+            "#productTitle": [{"visible": True}],
+            "#sc-subtotal-label-buybox": [{"visible": True}],
+            "#submitOrderButtonId": [{"visible": True}],
+        },
+    )
+
+    signals = collect_semantic_page_signals(page)
+
+    assert "captcha_visible" in signals
+    assert "otp_required" in signals
+    assert "payment_auth_required" in signals
+    assert "product_anchor_present" in signals
+    assert "cart_anchor_present" in signals
+    assert "checkout_anchor_present" in signals
 
 
 def test_duplicate_search_guard_skips_immediate_repeat() -> None:

@@ -1,4 +1,5 @@
 import type {
+  AuthSessionResponse,
   LiveSessionCreateResponse,
   RuntimeObservation,
   RuntimeScreenshot,
@@ -8,12 +9,33 @@ import type {
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8100";
+const AUTH_STORAGE_KEY = "blindnav_auth_token";
+
+export function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.localStorage.getItem(AUTH_STORAGE_KEY);
+}
+
+export function persistAuthToken(token: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (token) {
+    window.localStorage.setItem(AUTH_STORAGE_KEY, token);
+    return;
+  }
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+}
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const authToken = getStoredAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(init?.headers ?? {})
     },
     cache: "no-store"
@@ -23,6 +45,40 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${response.status} ${response.statusText}: ${text || "request failed"}`);
   }
   return (await response.json()) as T;
+}
+
+export async function signup(params: {
+  email: string;
+  displayName: string;
+  password: string;
+  preferredLocale?: string | null;
+}): Promise<AuthSessionResponse> {
+  return requestJson<AuthSessionResponse>("/api/auth/signup", {
+    method: "POST",
+    body: JSON.stringify({
+      email: params.email,
+      display_name: params.displayName,
+      password: params.password,
+      preferred_locale: params.preferredLocale ?? null
+    })
+  });
+}
+
+export async function login(params: {
+  email: string;
+  password: string;
+}): Promise<AuthSessionResponse> {
+  return requestJson<AuthSessionResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password
+    })
+  });
+}
+
+export async function getCurrentUser(): Promise<AuthSessionResponse> {
+  return requestJson<AuthSessionResponse>("/api/auth/me");
 }
 
 export async function createLiveSession(params: {
@@ -112,8 +168,50 @@ export async function getRuntimeScreenshot(sessionId: string): Promise<RuntimeSc
   }
 }
 
+export async function removeCartItem(params: {
+  sessionId: string;
+  itemId?: string | null;
+  title?: string | null;
+}) {
+  return requestJson(`/api/sessions/${params.sessionId}/cart/remove`, {
+    method: "POST",
+    body: JSON.stringify({
+      item_id: params.itemId ?? null,
+      title: params.title ?? null
+    })
+  });
+}
+
+export async function updateCartQuantity(params: {
+  sessionId: string;
+  itemId?: string | null;
+  title?: string | null;
+  quantity: number;
+}) {
+  return requestJson(`/api/sessions/${params.sessionId}/cart/quantity`, {
+    method: "POST",
+    body: JSON.stringify({
+      item_id: params.itemId ?? null,
+      title: params.title ?? null,
+      quantity: params.quantity
+    })
+  });
+}
+
+export async function loadLatestOrderSnapshot(sessionId: string) {
+  return requestJson(`/api/sessions/${sessionId}/orders/latest`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
 export function buildLiveWebSocketUrl(path: string): string {
   const base = new URL(API_BASE);
   const protocol = base.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${base.host}${path}`;
+  const url = new URL(`${protocol}//${base.host}${path}`);
+  const authToken = getStoredAuthToken();
+  if (authToken) {
+    url.searchParams.set("token", authToken);
+  }
+  return url.toString();
 }

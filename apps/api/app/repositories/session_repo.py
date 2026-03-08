@@ -25,6 +25,8 @@ def _to_session_detail(row: SessionORM) -> SessionDetail:
         locale=row.locale,
         screen_reader=row.screen_reader,
         client_version=row.client_version,
+        owner_display_name=row.user.display_name if row.user is not None else None,
+        user_id=UUID(row.user_id) if row.user_id else None,
     )
 
 
@@ -34,6 +36,7 @@ def _to_session_summary(row: SessionORM) -> SessionSummary:
         merchant=Merchant(row.merchant),
         status=SessionStatus(row.status),
         created_at=row.created_at,
+        owner_display_name=row.user.display_name if row.user is not None else None,
     )
 
 
@@ -56,8 +59,14 @@ def _to_agent_log_entry(row: AgentLogORM) -> AgentLogEntry:
     )
 
 
-def create_session(db: Session, payload: SessionCreate) -> SessionDetail:
+def create_session(
+    db: Session,
+    payload: SessionCreate,
+    *,
+    user_id: UUID | None = None,
+) -> SessionDetail:
     row = SessionORM(
+        user_id=str(user_id) if user_id is not None else None,
         merchant=payload.merchant.value,
         status=SessionStatus.ACTIVE.value,
         locale=payload.locale,
@@ -77,14 +86,17 @@ def get_session(db: Session, session_id: UUID) -> SessionDetail | None:
     return _to_session_detail(row)
 
 
-def list_sessions(db: Session, limit: int = 20, offset: int = 0) -> list[SessionSummary]:
-    rows: Sequence[SessionORM] = (
-        db.query(SessionORM)
-        .order_by(SessionORM.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+def list_sessions(
+    db: Session,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    user_id: UUID | None = None,
+) -> list[SessionSummary]:
+    query = db.query(SessionORM).order_by(SessionORM.created_at.desc())
+    if user_id is not None:
+        query = query.filter(SessionORM.user_id == str(user_id))
+    rows: Sequence[SessionORM] = query.offset(offset).limit(limit).all()
     return [_to_session_summary(row) for row in rows]
 
 

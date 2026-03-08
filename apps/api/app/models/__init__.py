@@ -1,3 +1,9 @@
-from app.models.session import AgentLogORM, SessionContextORM, SessionORM
+from app.models.session import AgentLogORM, SessionContextORM, SessionORM, UserAuthTokenORM, UserORM
 
-__all__ = ["SessionORM", "AgentLogORM", "SessionContextORM"]
+__all__ = [
+    "SessionORM",
+    "AgentLogORM",
+    "SessionContextORM",
+    "UserORM",
+    "UserAuthTokenORM",
+]

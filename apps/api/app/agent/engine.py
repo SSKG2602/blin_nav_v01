@@ -8,8 +8,11 @@ from app.agent.state import (
     AgentEvent,
     AgentState,
     AgentTransitionResult,
+    ClarificationNeeded,
+    ClarificationResolved,
     CheckoutProgress,
     HumanCheckpointResolved,
+    InterruptionRequested,
     LowConfidenceTriggered,
     NavResult,
     PostPurchaseObserved,
@@ -94,6 +97,60 @@ def next_state(
     event: AgentEvent,
     session_id: UUID,
 ) -> AgentTransitionResult:
+    if isinstance(event, ClarificationNeeded):
+        clarification_command = AgentCommand(
+            type=AgentCommandType.REQUEST_CLARIFICATION,
+            payload={
+                "kind": event.kind.value,
+                "prompt_to_user": event.prompt_to_user,
+                "resume_state": event.resume_state,
+            },
+        )
+        clarification_log = _build_log(
+            session_id=session_id,
+            step_type=AgentStepType.VERIFICATION,
+            state_before=current_state,
+            state_after=AgentState.CLARIFICATION_REQUIRED,
+            tool_name="agent.clarification",
+            tool_input_excerpt=event.kind.value,
+            tool_output_excerpt=event.reason,
+            user_spoken_summary=event.prompt_to_user,
+        )
+        return AgentTransitionResult(
+            new_state=AgentState.CLARIFICATION_REQUIRED,
+            commands=[clarification_command],
+            log_entries=[clarification_log],
+            spoken_summary=clarification_log.user_spoken_summary,
+            debug_notes="Clarification requested before continuing.",
+        )
+
+    if isinstance(event, InterruptionRequested):
+        interruption_command = AgentCommand(
+            type=AgentCommandType.REQUEST_CLARIFICATION,
+            payload={
+                "kind": "INTERRUPTION_REANCHOR",
+                "prompt_to_user": "I paused the current action. Please restate the next step or confirm resuming carefully.",
+                "resume_state": current_state.value,
+            },
+        )
+        interruption_log = _build_log(
+            session_id=session_id,
+            step_type=AgentStepType.META,
+            state_before=current_state,
+            state_after=AgentState.CLARIFICATION_REQUIRED,
+            tool_name="agent.interruption",
+            tool_input_excerpt="interruption_requested",
+            tool_output_excerpt=event.reason,
+            user_spoken_summary="I paused the current action. Please tell me the next step.",
+        )
+        return AgentTransitionResult(
+            new_state=AgentState.CLARIFICATION_REQUIRED,
+            commands=[interruption_command],
+            log_entries=[interruption_log],
+            spoken_summary=interruption_log.user_spoken_summary,
+            debug_notes="Interruption routed to clarification state.",
+        )
+
     if isinstance(event, LowConfidenceTriggered):
         return _halt_transition(
             session_id=session_id,
@@ -189,6 +246,164 @@ def next_state(
             log_entries=[log_entry],
             spoken_summary=log_entry.user_spoken_summary,
             debug_notes="Session initialized from user intent.",
+        )
+
+    if current_state == AgentState.CLARIFICATION_REQUIRED and isinstance(event, ClarificationResolved):
+        if event.follow_up_query or event.follow_up_intent:
+            command = AgentCommand(
+                type=AgentCommandType.RUN_TRUST_CHECK,
+                payload={
+                    "intent": event.follow_up_intent or "search_products",
+                    "query": event.follow_up_query,
+                    "merchant": event.merchant,
+                },
+            )
+            log_entry = _build_log(
+                session_id=session_id,
+                step_type=AgentStepType.INTENT_PARSE,
+                state_before=current_state,
+                state_after=AgentState.TRUST_CHECK,
+                tool_name="agent.clarification",
+                tool_input_excerpt=event.follow_up_query or event.follow_up_intent,
+                tool_output_excerpt="Clarified intent captured.",
+                user_spoken_summary="Clarified request captured. Re-checking trust before continuing.",
+            )
+            return AgentTransitionResult(
+                new_state=AgentState.TRUST_CHECK,
+                commands=[command],
+                log_entries=[log_entry],
+                spoken_summary=log_entry.user_spoken_summary,
+                debug_notes="Clarification returned a new or refined intent.",
+            )
+
+        if event.approved:
+            resume_state = (event.resume_state or "").strip().upper()
+            if resume_state == AgentState.VIEWING_PRODUCT_DETAIL.value:
+                command = AgentCommand(type=AgentCommandType.ANALYZE_REVIEWS)
+                log_entry = _build_log(
+                    session_id=session_id,
+                    step_type=AgentStepType.VERIFICATION,
+                    state_before=current_state,
+                    state_after=AgentState.REVIEW_ANALYSIS,
+                    tool_name="agent.clarification",
+                    tool_input_excerpt="resume_viewing_product_detail",
+                    tool_output_excerpt="Clarification approved; continuing with review analysis.",
+                    user_spoken_summary="Clarification approved. Continuing with review analysis.",
+                )
+                return AgentTransitionResult(
+                    new_state=AgentState.REVIEW_ANALYSIS,
+                    commands=[command],
+                    log_entries=[log_entry],
+                    spoken_summary=log_entry.user_spoken_summary,
+                    debug_notes="Clarification approved for product detail resume.",
+                )
+
+            if resume_state == AgentState.REVIEW_ANALYSIS.value:
+                add_to_cart_command = AgentCommand(type=AgentCommandType.ADD_TO_CART)
+                review_cart_command = AgentCommand(type=AgentCommandType.REVIEW_CART)
+                log_entry = _build_log(
+                    session_id=session_id,
+                    step_type=AgentStepType.VERIFICATION,
+                    state_before=current_state,
+                    state_after=AgentState.CART_VERIFICATION,
+                    tool_name="agent.clarification",
+                    tool_input_excerpt="resume_review_analysis",
+                    tool_output_excerpt="Clarification approved; moving to cart verification.",
+                    user_spoken_summary="Clarification approved. Moving to cart verification.",
+                )
+                return AgentTransitionResult(
+                    new_state=AgentState.CART_VERIFICATION,
+                    commands=[add_to_cart_command, review_cart_command],
+                    log_entries=[log_entry],
+                    spoken_summary=log_entry.user_spoken_summary,
+                    debug_notes="Clarification approved after review analysis.",
+                )
+
+            if resume_state in {AgentState.CART_VERIFICATION.value, AgentState.CHECKOUT_FLOW.value}:
+                command = AgentCommand(type=AgentCommandType.PERFORM_CHECKOUT)
+                log_entry = _build_log(
+                    session_id=session_id,
+                    step_type=AgentStepType.CHECKOUT,
+                    state_before=current_state,
+                    state_after=AgentState.CHECKOUT_FLOW,
+                    tool_name="agent.clarification",
+                    tool_input_excerpt="resume_checkout_flow",
+                    tool_output_excerpt="Clarification approved; continuing checkout.",
+                    user_spoken_summary="Clarification approved. Continuing checkout.",
+                )
+                return AgentTransitionResult(
+                    new_state=AgentState.CHECKOUT_FLOW,
+                    commands=[command],
+                    log_entries=[log_entry],
+                    spoken_summary=log_entry.user_spoken_summary,
+                    debug_notes="Clarification approved for checkout resume.",
+                )
+
+            if resume_state == AgentState.SEARCHING_PRODUCTS.value and (
+                getattr(event, "candidate_url", None) or getattr(event, "candidate_title", None)
+            ):
+                inspect_command = AgentCommand(
+                    type=AgentCommandType.INSPECT_PRODUCT_PAGE,
+                    payload={
+                        "candidate_url": getattr(event, "candidate_url", None),
+                        "candidate_title": getattr(event, "candidate_title", None),
+                    },
+                )
+                select_variant_command = AgentCommand(type=AgentCommandType.SELECT_PRODUCT_VARIANT)
+                log_entry = _build_log(
+                    session_id=session_id,
+                    step_type=AgentStepType.NAVIGATION,
+                    state_before=current_state,
+                    state_after=AgentState.VIEWING_PRODUCT_DETAIL,
+                    tool_name="agent.clarification",
+                    tool_input_excerpt="resume_selected_candidate",
+                    tool_output_excerpt="User approved the leading differentiated candidate.",
+                    user_spoken_summary="Understood. Opening the selected product for verification.",
+                )
+                return AgentTransitionResult(
+                    new_state=AgentState.VIEWING_PRODUCT_DETAIL,
+                    commands=[inspect_command, select_variant_command],
+                    log_entries=[log_entry],
+                    spoken_summary=log_entry.user_spoken_summary,
+                    debug_notes="Clarification approved with selected candidate open.",
+                )
+
+            command = AgentCommand(type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS)
+            log_entry = _build_log(
+                session_id=session_id,
+                step_type=AgentStepType.NAVIGATION,
+                state_before=current_state,
+                state_after=AgentState.SEARCHING_PRODUCTS,
+                tool_name="agent.clarification",
+                tool_input_excerpt="resume_search_after_clarification",
+                tool_output_excerpt="Clarification approved; resuming search.",
+                user_spoken_summary="Clarification approved. Resuming search.",
+            )
+            return AgentTransitionResult(
+                new_state=AgentState.SEARCHING_PRODUCTS,
+                commands=[command],
+                log_entries=[log_entry],
+                spoken_summary=log_entry.user_spoken_summary,
+                debug_notes="Clarification approved with search resume fallback.",
+            )
+
+        command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        log_entry = _build_log(
+            session_id=session_id,
+            step_type=AgentStepType.META,
+            state_before=current_state,
+            state_after=AgentState.SESSION_CLOSING,
+            tool_name="agent.clarification",
+            tool_input_excerpt="clarification_rejected",
+            tool_output_excerpt=event.resolution_notes or "Clarification rejected.",
+            user_spoken_summary="Clarification was not approved. Closing safely.",
+        )
+        return AgentTransitionResult(
+            new_state=AgentState.SESSION_CLOSING,
+            commands=[command],
+            log_entries=[log_entry],
+            spoken_summary=log_entry.user_spoken_summary,
+            debug_notes="Clarification rejected.",
         )
 
     if current_state == AgentState.TRUST_CHECK and isinstance(event, TrustCheckResult):

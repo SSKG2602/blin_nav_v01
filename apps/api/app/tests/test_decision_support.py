@@ -107,6 +107,32 @@ def test_review_assessment_medium_and_high_cases() -> None:
     assert high.conflict_level == ReviewConflictLevel.HIGH
 
 
+def test_review_assessment_uses_review_snippets_for_conflict_and_spoken_summary() -> None:
+    snippet_page = PageUnderstanding(
+        page_type=PageType.PRODUCT_DETAIL,
+        confidence=0.82,
+        primary_product=ProductCandidate(
+            title="Pedigree Puppy Food 3kg",
+            rating_text="4.2 out of 5 stars",
+            review_count_text="240 ratings",
+            review_snippets=[
+                "Dogs love the taste and digestion improved quickly.",
+                "Several buyers mention stomach upset and damaged packaging.",
+                "The puppy pack size is convenient and easy to store.",
+            ],
+        ),
+    )
+
+    assessment = derive_review_assessment(page=snippet_page)
+
+    assert assessment.conflict_level == ReviewConflictLevel.HIGH
+    assert assessment.positive_signals
+    assert assessment.negative_signals
+    assert assessment.cited_snippets
+    assert "positives:" in assessment.review_summary_spoken.lower()
+    assert "negatives:" in assessment.review_summary_spoken.lower()
+
+
 def test_final_purchase_confirmation_required_and_not_required() -> None:
     checkpoint = SensitiveCheckpointRequest(
         kind=SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION,

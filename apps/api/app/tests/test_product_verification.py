@@ -90,3 +90,26 @@ def test_verify_product_ambiguous_variant_case() -> None:
     assert "product_name" in result.matched_fields
     assert "variant" in result.missing_fields
 
+
+def test_verify_product_variant_precision_reports_selected_and_available_options() -> None:
+    intent = ProductIntentSpec(
+        raw_query="pedigree dog food 3kg",
+        brand="Pedigree",
+        product_name="dog food",
+        size_text="3kg",
+    )
+    candidate = ProductCandidate(
+        title="Pedigree Adult Dog Food",
+        brand_text="Pedigree",
+        variant_text="10kg",
+        variant_options=["1kg", "3kg", "10kg"],
+    )
+
+    result = verify_product_against_intent(intent, candidate)
+
+    assert result.decision == VerificationDecision.PARTIAL_MATCH
+    assert result.expected_variant_text == "3kg"
+    assert result.selected_variant_text == "10kg"
+    assert "3kg" in result.available_variant_options
+    assert result.comparison_summary is not None
+    assert "requested variant" in result.comparison_summary.lower()

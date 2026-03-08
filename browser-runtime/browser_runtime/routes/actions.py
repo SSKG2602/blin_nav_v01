@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from browser_runtime.automation import (
     AMAZON_CART_URL,
     AMAZON_HOME_URL,
+    AMAZON_ORDERS_URL,
     add_current_product_to_cart,
     action_guard,
     attempt_checkout_entry,
@@ -17,10 +18,12 @@ from browser_runtime.automation import (
     extract_product_detail_evidence,
     open_best_search_result,
     recover_to_stable_page,
+    remove_cart_item,
     safe_goto,
     safe_page_url,
     select_variant_option,
     submit_search_query,
+    update_cart_item_quantity,
 )
 from browser_runtime.config import settings
 from browser_runtime.driver import browser_session_manager
@@ -37,6 +40,8 @@ class NavigateToSearchResultsRequest(BaseModel):
 
 class InspectProductPageRequest(BaseModel):
     page_type: str | None = None
+    candidate_url: str | None = None
+    candidate_title: str | None = None
 
 
 class HandleErrorRecoveryRequest(BaseModel):
@@ -47,6 +52,17 @@ class SelectVariantRequest(BaseModel):
     variant_hint: str | None = None
     size_hint: str | None = None
     color_hint: str | None = None
+
+
+class RemoveCartItemRequest(BaseModel):
+    item_id: str | None = None
+    title: str | None = None
+
+
+class UpdateCartQuantityRequest(BaseModel):
+    item_id: str | None = None
+    title: str | None = None
+    quantity: int
 
 
 class EmptyActionRequest(BaseModel):
@@ -121,14 +137,35 @@ def inspect_product_page(
     session_id: UUID,
     payload: InspectProductPageRequest = Body(default_factory=InspectProductPageRequest),
 ) -> Response:
-    _log_action("inspect_product_page", session_id, page_type=payload.page_type)
+    _log_action(
+        "inspect_product_page",
+        session_id,
+        page_type=payload.page_type,
+        candidate_url=payload.candidate_url,
+        candidate_title=payload.candidate_title,
+    )
     notes: list[str] = []
     try:
         page = browser_session_manager.get_page(session_id)
         notes.extend(dismiss_common_interruptions(page))
-
-        opened, candidate, selection_notes = open_best_search_result(page, session_id=session_id)
-        notes.extend(selection_notes)
+        candidate = None
+        opened = False
+        if payload.candidate_url:
+            candidate = {
+                "title": payload.candidate_title,
+                "url": payload.candidate_url,
+            }
+            opened = safe_goto(page, payload.candidate_url)
+            if not opened:
+                notes.append("candidate_navigation_failed")
+            else:
+                action_guard.record_product_open(
+                    session_id,
+                    current_url=safe_page_url(page),
+                )
+        else:
+            opened, candidate, selection_notes = open_best_search_result(page, session_id=session_id)
+            notes.extend(selection_notes)
         evidence = extract_product_detail_evidence(page)
         if not opened:
             notes.append("product_open_not_confirmed")
@@ -286,6 +323,83 @@ def review_cart(
     return _accepted_response()
 
 
+@router.post("/{session_id}/actions/remove_cart_item", status_code=status.HTTP_204_NO_CONTENT)
+def remove_cart_item_action(
+    session_id: UUID,
+    payload: RemoveCartItemRequest = Body(default_factory=RemoveCartItemRequest),
+) -> Response:
+    _log_action("remove_cart_item", session_id, item_id=payload.item_id, title=payload.title)
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        current_url = safe_page_url(page)
+        if current_url is None or "cart" not in current_url.lower():
+            if not safe_goto(page, AMAZON_CART_URL):
+                notes.append("cart_navigation_before_remove_failed")
+
+        removed, remove_notes = remove_cart_item(
+            page,
+            item_id=payload.item_id,
+            title=payload.title,
+        )
+        notes.extend(remove_notes)
+        cart_evidence = extract_cart_evidence(page)
+        logger.info(
+            "remove_cart_item_summary %s",
+            {
+                "session_id": str(session_id),
+                "removed": removed,
+                "cart_item_count": cart_evidence.get("cart_item_count"),
+                "notes": (notes + (cart_evidence.get("notes") or [])) or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("remove_cart_item failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
+@router.post("/{session_id}/actions/update_cart_quantity", status_code=status.HTTP_204_NO_CONTENT)
+def update_cart_quantity_action(
+    session_id: UUID,
+    payload: UpdateCartQuantityRequest,
+) -> Response:
+    _log_action(
+        "update_cart_quantity",
+        session_id,
+        item_id=payload.item_id,
+        title=payload.title,
+        quantity=str(payload.quantity),
+    )
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        current_url = safe_page_url(page)
+        if current_url is None or "cart" not in current_url.lower():
+            if not safe_goto(page, AMAZON_CART_URL):
+                notes.append("cart_navigation_before_quantity_failed")
+
+        updated, update_notes = update_cart_item_quantity(
+            page,
+            item_id=payload.item_id,
+            title=payload.title,
+            quantity=payload.quantity,
+        )
+        notes.extend(update_notes)
+        cart_evidence = extract_cart_evidence(page)
+        logger.info(
+            "update_cart_quantity_summary %s",
+            {
+                "session_id": str(session_id),
+                "updated": updated,
+                "cart_item_count": cart_evidence.get("cart_item_count"),
+                "notes": (notes + (cart_evidence.get("notes") or [])) or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("update_cart_quantity failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
 @router.post("/{session_id}/actions/perform_checkout", status_code=status.HTTP_204_NO_CONTENT)
 def perform_checkout(
     session_id: UUID,
@@ -399,6 +513,30 @@ def finalize_purchase(
         )
     except Exception as exc:
         logger.error("finalize_purchase failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
+@router.post("/{session_id}/actions/navigate_orders_history", status_code=status.HTTP_204_NO_CONTENT)
+def navigate_orders_history(
+    session_id: UUID,
+    payload: EmptyActionRequest = Body(default_factory=EmptyActionRequest),
+) -> Response:
+    _log_action("navigate_orders_history", session_id)
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        if not safe_goto(page, AMAZON_ORDERS_URL):
+            notes.append("orders_navigation_failed")
+        logger.info(
+            "navigate_orders_history_summary %s",
+            {
+                "session_id": str(session_id),
+                "landed_url": safe_page_url(page),
+                "notes": notes or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("navigate_orders_history failed for session %s: %s", session_id, exc)
     return _accepted_response()
 
 

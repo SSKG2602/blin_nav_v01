@@ -33,9 +33,11 @@ class SessionSummary(BaseModel):
     merchant: Merchant
     status: SessionStatus
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    owner_display_name: str | None = None
 
 
 class SessionDetail(SessionSummary):
     locale: str | None = None
     screen_reader: str | None = None
     client_version: str | None = None
+    user_id: UUID | None = None

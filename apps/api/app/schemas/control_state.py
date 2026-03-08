@@ -58,4 +58,7 @@ class RecoveryStatus(BaseModel):
     recovery_kind: RecoveryKind | None = None
     reason: str | None = None
     last_attempt_summary: str | None = None
+    expected_state: str | None = None
+    observed_page_type: str | None = None
+    recovery_outcome: str | None = None
     last_updated_at: datetime | None = None

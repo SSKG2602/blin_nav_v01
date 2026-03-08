@@ -101,8 +101,23 @@ def _build_detail_candidate(raw_data: dict[str, Any]) -> ProductCandidate | None
         "review_count_text": raw_data.get("review_count_text"),
         "availability_text": raw_data.get("availability_text"),
         "variant_text": raw_data.get("variant_text"),
+        "brand_text": raw_data.get("brand_text"),
+        "review_snippets": raw_data.get("review_snippets") or [],
+        "variant_options": raw_data.get("variant_options") or [],
     }
-    if any(value is not None for value in payload.values()):
+    if any(
+        payload.get(field)
+        for field in (
+            "title",
+            "price_text",
+            "url",
+            "rating_text",
+            "review_count_text",
+            "availability_text",
+            "variant_text",
+            "brand_text",
+        )
+    ) or payload["review_snippets"] or payload["variant_options"]:
         return ProductCandidate.model_validate(payload)
     return None
 
@@ -231,4 +246,3 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
         confidence=confidence,
         notes=notes,
     )
-

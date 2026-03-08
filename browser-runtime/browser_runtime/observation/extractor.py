@@ -4,9 +4,11 @@ import base64
 from typing import Any
 
 from browser_runtime.automation import (
+    collect_semantic_page_signals,
     collect_search_result_candidates,
     detect_checkout_entry_readiness,
     extract_cart_evidence,
+    extract_latest_order_evidence,
     extract_product_detail_evidence,
     infer_page_hints,
     safe_page_title,
@@ -72,7 +74,23 @@ def _build_primary_from_detail(detail: dict[str, Any]) -> dict[str, Any] | None:
         review_count_text=detail.get("review_count_text"),
         availability_text=detail.get("availability_text"),
         variant_text=detail.get("variant_text"),
+        brand_text=detail.get("brand_text"),
+        review_snippets=detail.get("review_snippets") or [],
+        variant_options=detail.get("variant_options") or [],
     ).model_dump(exclude_none=True)
+    meaningful_fields = {
+        "title",
+        "price_text",
+        "url",
+        "rating_text",
+        "review_count_text",
+        "availability_text",
+        "variant_text",
+        "brand_text",
+    }
+    if not any(_normalize_text(primary.get(field)) for field in meaningful_fields):
+        if not primary.get("review_snippets") and not primary.get("variant_options"):
+            return None
     return primary or None
 
 
@@ -94,6 +112,11 @@ def extract_observation_from_snapshot(snapshot: dict[str, Any]) -> RuntimePageOb
 
     cart_item_count = _to_int(snapshot.get("cart_item_count"))
     checkout_ready = _to_bool(snapshot.get("checkout_ready"))
+    cart_items = [
+        item
+        for item in (snapshot.get("cart_items") or [])
+        if isinstance(item, dict)
+    ] if isinstance(snapshot.get("cart_items"), list) else []
 
     raw_hints = snapshot.get("detected_page_hints")
     detected_page_hints: list[str] = []
@@ -123,8 +146,18 @@ def extract_observation_from_snapshot(snapshot: dict[str, Any]) -> RuntimePageOb
         detected_page_hints=detected_page_hints,
         product_candidates=candidates,
         primary_product=primary_product,
+        cart_items=cart_items,
         cart_item_count=cart_item_count,
         checkout_ready=checkout_ready,
+        order_id_hint=_normalize_text(snapshot.get("order_id_hint")) or None,
+        order_date_text=_normalize_text(snapshot.get("order_date_text")) or None,
+        shipping_stage_text=_normalize_text(snapshot.get("shipping_stage_text")) or None,
+        expected_delivery_text=_normalize_text(snapshot.get("expected_delivery_text")) or None,
+        order_total_text=_normalize_text(snapshot.get("order_total_text")) or None,
+        order_card_title=_normalize_text(snapshot.get("order_card_title")) or None,
+        orders_page_url=_normalize_text(snapshot.get("orders_page_url")) or None,
+        support_entry_hint=_normalize_text(snapshot.get("support_entry_hint")) or None,
+        returns_entry_hint=_normalize_text(snapshot.get("returns_entry_hint")) or None,
         notes=notes,
     )
 
@@ -140,12 +173,19 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
     primary_product = _build_primary_from_detail(detail_evidence)
 
     cart_evidence = extract_cart_evidence(page)
+    orders_evidence = extract_latest_order_evidence(page)
     cart_item_count = cart_evidence.get("cart_item_count")
     checkout_ready = cart_evidence.get("checkout_ready")
+    cart_items = [
+        item
+        for item in (cart_evidence.get("cart_items") or [])
+        if isinstance(item, dict)
+    ]
     if checkout_ready is None:
         checkout_ready, _ = detect_checkout_entry_readiness(page)
 
     notes_list: list[str] = []
+    notes_list.extend(collect_semantic_page_signals(page))
     detail_notes = _normalize_text(detail_evidence.get("notes"))
     if detail_notes:
         notes_list.append(detail_notes)
@@ -176,8 +216,18 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         detected_page_hints=hints,
         product_candidates=product_candidates,
         primary_product=primary_product,
+        cart_items=cart_items,
         cart_item_count=cart_item_count,
         checkout_ready=checkout_ready,
+        order_id_hint=_normalize_text(orders_evidence.get("order_id_hint")) or None,
+        order_date_text=_normalize_text(orders_evidence.get("order_date_text")) or None,
+        shipping_stage_text=_normalize_text(orders_evidence.get("shipping_stage_text")) or None,
+        expected_delivery_text=_normalize_text(orders_evidence.get("expected_delivery_text")) or None,
+        order_total_text=_normalize_text(orders_evidence.get("order_total_text")) or None,
+        order_card_title=_normalize_text(orders_evidence.get("order_card_title")) or None,
+        orders_page_url=_normalize_text(orders_evidence.get("orders_page_url")) or None,
+        support_entry_hint=_normalize_text(orders_evidence.get("support_entry_hint")) or None,
+        returns_entry_hint=_normalize_text(orders_evidence.get("returns_entry_hint")) or None,
         notes=", ".join(notes_list) if notes_list else None,
     )
 

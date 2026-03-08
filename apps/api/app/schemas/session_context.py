@@ -11,12 +11,17 @@ from app.schemas.control_state import (
     RecoveryStatus,
     SensitiveCheckpointRequest,
 )
+from app.schemas.cart_context import CartSnapshot
+from app.schemas.clarification import ClarificationRequest
 from app.schemas.intent import InterpretedUserIntent
+from app.schemas.interruption import InterruptionMarker
 from app.schemas.multimodal_assessment import MultimodalAssessment
+from app.schemas.order_support import LatestOrderSnapshot
 from app.schemas.page_understanding import PageUnderstanding
 from app.schemas.purchase_support import FinalPurchaseConfirmation, PostPurchaseSummary
 from app.schemas.review_analysis import ReviewAssessment
 from app.schemas.product_verification import ProductIntentSpec, ProductVerificationResult
+from app.schemas.session_closure import FinalSelfDiagnosis, FinalSessionArtifact
 from app.schemas.trust_verification import TrustAssessment
 
 
@@ -28,11 +33,17 @@ class SessionContextSnapshot(BaseModel):
     latest_verification: ProductVerificationResult | None = None
     latest_multimodal_assessment: MultimodalAssessment | None = None
     latest_sensitive_checkpoint: SensitiveCheckpointRequest | None = None
+    latest_clarification_request: ClarificationRequest | None = None
     latest_low_confidence_status: LowConfidenceStatus | None = None
     latest_recovery_status: RecoveryStatus | None = None
+    latest_interruption_marker: InterruptionMarker | None = None
     latest_trust_assessment: TrustAssessment | None = None
     latest_review_assessment: ReviewAssessment | None = None
     latest_final_purchase_confirmation: FinalPurchaseConfirmation | None = None
     latest_post_purchase_summary: PostPurchaseSummary | None = None
+    latest_cart_snapshot: CartSnapshot | None = None
+    latest_order_snapshot: LatestOrderSnapshot | None = None
+    latest_final_session_artifact: FinalSessionArtifact | None = None
+    latest_final_self_diagnosis: FinalSelfDiagnosis | None = None
     latest_spoken_summary: str | None = None
     updated_at: datetime | None = None

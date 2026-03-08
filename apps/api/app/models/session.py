@@ -15,12 +15,15 @@ class SessionORM(Base):
     __tablename__ = "sessions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     merchant = Column(String(64), nullable=False, default=Merchant.AMAZON.value)
     status = Column(String(32), nullable=False, default=SessionStatus.ACTIVE.value)
     locale = Column(String(16), nullable=True)
     screen_reader = Column(String(64), nullable=True)
     client_version = Column(String(64), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    user = relationship("UserORM", back_populates="sessions")
 
     logs = relationship(
         "AgentLogORM",
@@ -66,13 +69,49 @@ class SessionContextORM(Base):
     latest_verification_json = Column(JSON, nullable=True)
     latest_multimodal_assessment_json = Column(JSON, nullable=True)
     latest_sensitive_checkpoint_json = Column(JSON, nullable=True)
+    latest_clarification_request_json = Column(JSON, nullable=True)
     latest_low_confidence_status_json = Column(JSON, nullable=True)
     latest_recovery_status_json = Column(JSON, nullable=True)
+    latest_interruption_marker_json = Column(JSON, nullable=True)
     latest_trust_assessment_json = Column(JSON, nullable=True)
     latest_review_assessment_json = Column(JSON, nullable=True)
     latest_final_purchase_confirmation_json = Column(JSON, nullable=True)
     latest_post_purchase_summary_json = Column(JSON, nullable=True)
+    latest_cart_snapshot_json = Column(JSON, nullable=True)
+    latest_order_snapshot_json = Column(JSON, nullable=True)
+    latest_final_session_artifact_json = Column(JSON, nullable=True)
+    latest_final_self_diagnosis_json = Column(JSON, nullable=True)
     latest_spoken_summary = Column(String(1024), nullable=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     session = relationship("SessionORM", back_populates="context")
+
+
+class UserORM(Base):
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    display_name = Column(String(120), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    password_salt = Column(String(255), nullable=False)
+    preferred_locale = Column(String(16), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    sessions = relationship("SessionORM", back_populates="user")
+    auth_tokens = relationship(
+        "UserAuthTokenORM",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+class UserAuthTokenORM(Base):
+    __tablename__ = "user_auth_tokens"
+
+    token = Column(String(96), primary_key=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    user = relationship("UserORM", back_populates="auth_tokens")

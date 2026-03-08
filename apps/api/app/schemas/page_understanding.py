@@ -22,6 +22,9 @@ class ProductCandidate(BaseModel):
     review_count_text: str | None = None
     availability_text: str | None = None
     variant_text: str | None = None
+    brand_text: str | None = None
+    review_snippets: list[str] = Field(default_factory=list)
+    variant_options: list[str] = Field(default_factory=list)
 
 
 class PageUnderstanding(BaseModel):
@@ -33,4 +36,3 @@ class PageUnderstanding(BaseModel):
     checkout_ready: bool | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     notes: str | None = None
-

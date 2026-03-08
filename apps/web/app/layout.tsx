@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "../styles/animations.css";
 
 export const metadata: Metadata = {
   title: "BlindNav Demo Shell",

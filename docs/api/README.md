@@ -1,94 +1,48 @@
 # API Docs
 
-Current backend surface:
-- `GET /health` - process heartbeat (`status=ok`), no infra dependency checks
-- `GET /health/live` - liveness probe (`status=ok`), no infra dependency checks
-- `GET /health/ready` - readiness probe with dependency checks (`checks.db`, `checks.redis`) and aggregate status (`ok`, `degraded`, `down`)
+Current backend surface includes deterministic orchestration endpoints, live-session transport, and runtime observation bridges.
 
-All endpoints are foundation-level health endpoints only.
+## Health Endpoints
 
-## Core API Contracts (Schemas Only)
+- `GET /health`
+- `GET /health/live`
+- `GET /health/ready`
 
-Session contracts:
-- `SessionCreate`: input payload for starting a voice shopping session; includes `merchant`, `locale`, `screen_reader`, `client_version`, and `user_agent`.
-- `SessionSummary`: lightweight session metadata for listing/overview surfaces; includes `session_id`, `merchant`, `status`, and `created_at`.
-- `SessionDetail`: extended session view based on `SessionSummary`, adding `locale`, `screen_reader`, and `client_version`.
-- Session enums:
-  - `Merchant`: `amazon.in`, `flipkart.com`, `meesho.com`
-  - `SessionStatus`: `active`, `ended`, `cancelled`, `error`
+`/health/ready` includes DB/Redis checks and aggregate status (`ok`, `degraded`, `down`).
 
-Agent log contract:
-- `AgentLogEntry`: per-step audit record with `session_id`, `step_type`, state transition fields, tool excerpts, confidence/checkpoint flags, user spoken summary, error fields, and `created_at`.
-- `AgentStepType`: step taxonomy (`perception`, `intent_parse`, `navigation`, `verification`, `checkout`, `error`, `meta`) used for audit trail, user-facing explanation, and debugging.
-
-### Persistence Core v1 (Sessions & Agent Logs)
-
-- `SessionORM` and `AgentLogORM` provide SQLAlchemy-backed persistence models for the session and agent-log schema contracts.
-- Repository boundary (`app/repositories/session_repo.py`) handles ORM-to-schema mapping through:
-  - `create_session`, `get_session`, `list_sessions`
-  - `append_agent_log`, `list_agent_logs_for_session`
-- This layer is persistence-only. No HTTP routes, orchestration logic, or merchant-specific behavior is attached yet.
-
-## Session API v1
+## Session + Logs API
 
 - `POST /api/sessions`
-  - Creates a new session from `SessionCreate`.
-  - Returns `SessionDetail` with generated `session_id`, `status`, and timestamps.
 - `GET /api/sessions/{session_id}`
-  - Returns a single `SessionDetail`.
-  - Returns `404` when the session does not exist.
 - `GET /api/sessions`
-  - Returns `list[SessionSummary]`.
-  - Supports basic `limit`/`offset` and optional `merchant` filtering.
 - `POST /api/sessions/{session_id}/logs`
-  - Appends one agent log entry for the session.
-  - Returns the stored `AgentLogEntry`.
-  - Returns `404` when the session does not exist.
 - `GET /api/sessions/{session_id}/logs`
-  - Returns `list[AgentLogEntry]` for a session.
-  - Returns `404` when the session does not exist.
 
-This API layer is transport + persistence only. Agent state machine behavior, Gemini wiring, and browser-runtime execution are layered later.
-
-## Agent Step API v1
+## Deterministic Agent-Step API
 
 - `POST /api/sessions/{session_id}/agent/step`
-  - Drives one agent step for the given session.
-  - Request body is a discriminated union `AgentEvent` with an `event_type` field, e.g.:
-    - `user_intent_parsed`
-    - `nav_result`
-    - `verification_result`
-    - `checkout_progress`
-    - `human_checkpoint_resolved`
-    - `low_confidence_triggered`
-    - `tool_error`
-    - `session_close_requested`
-  - Response:
-    - `new_state`: the updated `AgentState`.
-    - `spoken_summary`: optional string the UI can read out to the user.
-    - `commands`: list of `AgentCommand` objects (command type + payload) that a tools layer (LLM, browser runtime, etc.) can interpret.
-    - `debug_notes`: optional debugging text for logs and development.
-  - Returns `404` with `{"detail": "Session not found"}` when the session does not exist.
 
-This API is backend-only orchestration. It does not directly call Gemini or the browser runtime; it just exposes state-machine decisions and audit trail.
+This executes one orchestrated state-machine step, emits agent commands for the tools layer, updates context evidence, and returns the new state + spoken summary.
 
-## Live Session API v1
-
-- `POST /api/live/sessions`
-  - Creates a live session wrapper over an existing shopping session.
-  - Request supports `merchant` and `locale`.
-  - Returns `session_id`, websocket path, and normalized locale.
-- `WS /api/live/sessions/{session_id}/stream`
-  - Event-driven gateway for voice/demo shell interaction.
-  - Supports events: `start`, `user_text`, `audio_chunk`, `interrupt`, `cancel`, `checkpoint_response`, `ping`.
-  - Emits events: `session_connected`, `session_started`, `transcription`, `interpreted_intent`, `agent_step`, `spoken_output`, `checkpoint_required`, `checkpoint_resolved`, `error`, `pong`.
-  - Locale is normalized (`en-IN`, `hi-IN`) and propagated to transcription/spoken output payloads.
-
-## Context + Checkpoint Operational APIs
+## Context / Consent / Runtime APIs
 
 - `GET /api/sessions/{session_id}/context`
-  - Returns latest persisted evidence and decision-support snapshot for the session.
 - `GET /api/sessions/{session_id}/checkpoint`
-  - Returns current checkpoint state when present.
 - `POST /api/sessions/{session_id}/checkpoint/resolve`
-  - Resolves pending checkpoint with operator approval/rejection.
+- `GET /api/sessions/{session_id}/final-confirmation`
+- `POST /api/sessions/{session_id}/final-confirmation/resolve`
+- `GET /api/sessions/{session_id}/runtime/observation`
+- `GET /api/sessions/{session_id}/runtime/screenshot`
+
+## Live Session API
+
+- `POST /api/live/sessions`
+- `WS /api/live/sessions/{session_id}/stream`
+
+Live websocket flow supports start/user_text/audio/interrupt/cancel and consent resolution events, and emits transcription/intent/agent-step/spoken-output/control-state events for the operator shell.
+
+## Contract Notes
+
+- Session, context, control-state, purchase-support, trust, review, and multimodal schemas are active and used by route handlers and orchestration layers.
+- Locale is normalized (`en-IN`, `hi-IN`) at live ingress and propagated through spoken/transcription payloads.
+- Claims here are implementation-grounded; this doc intentionally avoids speculative future endpoint claims.

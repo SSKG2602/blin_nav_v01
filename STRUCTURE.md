@@ -1,25 +1,25 @@
 # Repository Structure
 
-This repository is a minimal monorepo foundation for BlindNav. It mirrors the documented split between frontend shell, backend API, browser runtime, infrastructure, and shared contracts without implementing product logic yet.
+This repository is an active BlindNav implementation monorepo with deterministic backend orchestration, browser-runtime integration, and an operator-oriented frontend shell.
 
 ## Top Level
 
-- `apps/web` - Next.js 15 placeholder frontend on port `3100`
-- `apps/api` - FastAPI placeholder backend on port `8100`
-- `browser-runtime` - Playwright runtime placeholder only
-- `infra/docker` - local container images
-- `infra/cloudrun` - Cloud Run deployment skeleton
-- `packages` - shared cross-surface contract placeholders
-- `scripts` - local dev, test, and deployment helpers
-- `docs` - architecture, API, prompt, merchant, and demo notes
-- `data` - fixtures, merchant metadata, transcripts, and seed placeholders
-- `tests` - repo-level e2e, integration, contract, and smoke placeholders
-- `.github/workflows` - CI skeleton
+- `apps/web` - Next.js operator shell on `3100`, including live control panels, transcript/exchange UI, checkpoint/final-confirmation surfaces, runtime mirror, and session history
+- `apps/api` - FastAPI service on `8100` with session APIs, deterministic agent-step orchestration, live websocket gateway, and context/checkpoint/final-confirmation/runtime endpoints
+- `browser-runtime` - Playwright-backed runtime service for action execution + page observation/screenshot capture
+- `infra/docker` - container build definitions for local/dev execution
+- `infra/cloudrun` - deployment assets for Cloud Run
+- `packages` - shared contract/package stubs and schema notes used across surfaces
+- `scripts` - local dev/test/deploy helpers
+- `docs` - implementation-aligned architecture/API/demo/prompt/merchant notes
+- `data` - fixtures/transcripts placeholders and runtime support folders
+- `tests` - test harness roots; most active test coverage currently sits under `apps/api/app/tests` and `browser-runtime/tests`
+- `.github/workflows` - CI workflow skeletons
 
 ## Principles
 
-- Foundation only: no feature modules yet
-- Keep the backend as the future deployment center for Cloud Run
-- Keep the browser runtime isolated until real Playwright services exist
-- Keep shared packages intentionally empty until contracts are defined
-- Keep reference planning material outside this repository
+- Deterministic orchestration is intentional and remains backend-owned.
+- Frontend is an operator shell: it visualizes and controls existing backend behavior; it does not own business orchestration.
+- Browser runtime is consumed via explicit backend tool boundaries.
+- Consent checkpoints, final confirmation, and safety-state visibility are first-class demo behaviors.
+- Documentation should describe only implemented behavior; speculative future scope belongs in reference planning material, not implementation docs.

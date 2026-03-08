@@ -1,5 +1,5 @@
 # Diagrams
 
-Reserved for exported architecture and flow diagrams that describe the shippable repository.
+Reserved for exported architecture and flow diagrams that describe the runnable repository implementation.
 
-Do not copy raw planning assets from `../Gemini_Hack` into this repo during bootstrap.
+Do not copy raw planning assets from `../Gemini_Hack` directly into this folder.

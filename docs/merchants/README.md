@@ -7,4 +7,7 @@ Backup logged-in contingencies only:
 - Flipkart
 - Meesho
 
-This bootstrap does not include merchant logic, adapters, selectors, or flows.
+Current implementation is demo-focused and bounded:
+- merchant behavior is mediated through deterministic backend orchestration + browser-runtime tools
+- support is not a generalized adapter marketplace or full autonomous cross-merchant engine
+- domain trust checks and checkpoint-gated flows are prioritized over broad merchant feature coverage

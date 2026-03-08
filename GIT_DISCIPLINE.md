@@ -4,7 +4,7 @@
 
 - This repository is the shippable codebase
 - `../Gemini_Hack` is reference-only and must not be edited from this repo
-- Bootstrap work should stay limited to shared foundation and repo hygiene
+- Changes must preserve deterministic BlindNav architecture and existing API/runtime contracts unless explicitly planned
 
 ## Branch Naming
 
@@ -13,25 +13,25 @@
 - Prefer short, concrete names tied to the change set
 
 Examples:
-- `foundation-repo-bootstrap`
-- `sskg-78-infra-base`
-- `msms-64-docs-bootstrap`
+- `sskg-78-orchestrator-hardening`
+- `msms-64-frontend-shell-panels`
+- `docs-implementation-alignment`
 
 ## Ownership Boundaries
 
 - `sskg-78` owns most backend, infra, browser runtime, AI integration, and architecture-critical paths
 - `msms-64` owns bounded frontend, docs, fixtures, and smoke-oriented support paths
-- Shared base changes should remain narrow and low-risk so both owners can branch safely afterward
+- Cross-cutting changes should remain narrow and low-risk so both owners can integrate safely
 
 ## Commit and PR Rules
 
 - Keep commits focused
-- Avoid unrelated refactors during scaffold setup
+- Avoid unrelated refactors in controlled integration phases
 - Prefer readable commit messages over clever ones
 - Document assumptions when a reference detail is missing locally
-- Do not merge feature logic into foundation branches
+- Do not mix architecture-sensitive behavior changes with unrelated cleanup
 
-## Early Repository Rules
+## Repository Rules
 
 - No secrets in the repo
 - No fake business logic

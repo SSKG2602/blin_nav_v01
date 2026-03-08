@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BlindNav Foundation",
-  description: "BlindNav / Luminar repository foundation bootstrap."
+  title: "Luminar Voice Shopping Assistant",
+  description: "Voice-first AI shopping assistant frontend for Luminar."
 };
 
 export default function RootLayout({

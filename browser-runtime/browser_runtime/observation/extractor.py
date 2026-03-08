@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 from browser_runtime.automation import (
@@ -11,7 +12,11 @@ from browser_runtime.automation import (
     safe_page_title,
     safe_page_url,
 )
-from browser_runtime.observation.models import RuntimePageObservation, RuntimeProductCandidate
+from browser_runtime.observation.models import (
+    RuntimePageObservation,
+    RuntimeProductCandidate,
+    RuntimeScreenshotObservation,
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -158,6 +163,10 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         checkout_ready=checkout_ready,
     )
 
+    combined_identity = f"{_normalize_text(observed_url).lower()} {_normalize_text(page_title).lower()}"
+    if any(token in combined_identity for token in ("thank you", "order placed", "order confirmation")):
+        notes_list.append("order_confirmation_detected")
+
     if hints == ["unknown"]:
         notes_list.append("weak_page_evidence")
 
@@ -170,4 +179,33 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         cart_item_count=cart_item_count,
         checkout_ready=checkout_ready,
         notes=", ".join(notes_list) if notes_list else None,
+    )
+
+
+def extract_current_page_screenshot(page: Any) -> RuntimeScreenshotObservation:
+    screenshot_fn = getattr(page, "screenshot", None)
+    if not callable(screenshot_fn):
+        return RuntimeScreenshotObservation(
+            image_base64=None,
+            notes="Screenshot API unavailable on current page adapter.",
+        )
+
+    try:
+        raw = screenshot_fn(type="png", full_page=True)
+    except Exception as exc:
+        return RuntimeScreenshotObservation(
+            image_base64=None,
+            notes=f"Screenshot capture failed: {exc}",
+        )
+
+    if isinstance(raw, bytes):
+        encoded = base64.b64encode(raw).decode("ascii")
+        return RuntimeScreenshotObservation(
+            image_base64=encoded,
+            notes=None if encoded else "Screenshot was empty.",
+        )
+
+    return RuntimeScreenshotObservation(
+        image_base64=None,
+        notes="Screenshot returned non-bytes payload.",
     )

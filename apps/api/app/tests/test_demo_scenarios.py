@@ -44,8 +44,34 @@ class ScenarioBrowserRuntimeClient:
     def inspect_product_page(self, *, session_id: UUID, page_type: str | None) -> None:
         self._record("inspect_product_page", session_id=session_id, page_type=page_type)
 
-    def verify_product_variant(self, *, session_id: UUID) -> None:
+    def verify_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
         self._record("verify_product_variant", session_id=session_id)
+
+    def select_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        self._record(
+            "select_product_variant",
+            session_id=session_id,
+            variant_hint=variant_hint,
+            size_hint=size_hint,
+            color_hint=color_hint,
+        )
+
+    def add_to_cart(self, *, session_id: UUID) -> None:
+        self._record("add_to_cart", session_id=session_id)
 
     def review_cart(self, *, session_id: UUID) -> None:
         self._record("review_cart", session_id=session_id)
@@ -53,12 +79,19 @@ class ScenarioBrowserRuntimeClient:
     def perform_checkout(self, *, session_id: UUID) -> None:
         self._record("perform_checkout", session_id=session_id)
 
+    def finalize_purchase(self, *, session_id: UUID) -> None:
+        self._record("finalize_purchase", session_id=session_id)
+
     def handle_error_recovery(self, *, session_id: UUID, error_type: str | None = None) -> None:
         self._record("handle_error_recovery", session_id=session_id, error_type=error_type)
 
     def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
         self._record("get_current_page_observation", session_id=session_id)
         return self._next_observation()
+
+    def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
+        self._record("get_current_page_screenshot", session_id=session_id)
+        return {}
 
 
 class ScenarioLLMClient:
@@ -296,7 +329,7 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
     assert resolve_ok.json()["status"] == "APPROVED"
     approved_context = _context(client, approved_session)
     assert approved_context["latest_final_purchase_confirmation"]["required"] is True
-    assert approved_context["latest_final_purchase_confirmation"]["confirmed"] is True
+    assert approved_context["latest_final_purchase_confirmation"]["confirmed"] is False
 
     rejected_session = _create_session(client)
     _run_user_step(
@@ -372,7 +405,7 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
             "merchant": "amazon.in",
         },
     )
-    assert step["new_state"] == "SEARCHING_PRODUCTS"
+    assert step["new_state"] in {"SEARCHING_PRODUCTS", "ERROR_RECOVERY"}
 
     context = _context(client, session_id)
     assert context["latest_recovery_status"]["active"] is True

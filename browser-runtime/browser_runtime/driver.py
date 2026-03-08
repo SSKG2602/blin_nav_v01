@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 class DummyPage:
     def __init__(self, session_id: UUID):
         self._session_id = session_id
+        self.url = ""
+
+    def title(self) -> str:
+        return "Dummy Browser Runtime Page"
 
     def goto(self, *args, **kwargs) -> DummyPage:
         logger.info(
@@ -25,6 +29,8 @@ class DummyPage:
             args,
             kwargs,
         )
+        if args and isinstance(args[0], str):
+            self.url = args[0]
         return self
 
     def fill(self, *args, **kwargs) -> DummyPage:
@@ -107,6 +113,15 @@ class DummyPage:
             kwargs,
         )
         return False
+
+    def screenshot(self, *args, **kwargs) -> bytes:
+        logger.info(
+            "dummy_page.screenshot session_id=%s args=%s kwargs=%s",
+            self._session_id,
+            args,
+            kwargs,
+        )
+        return b""
 
 
 class BrowserSessionManager:

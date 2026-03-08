@@ -11,13 +11,18 @@ from app.agent.state import (
     HumanCheckpointResolved,
     LowConfidenceTriggered,
     NavResult,
+    PostPurchaseObserved,
+    ReviewAnalysisResult,
     SessionCloseRequested,
+    TrustCheckResult,
     UserIntentParsed,
     VerificationResult,
 )
 from app.db.base import Base
 from app.repositories.session_repo import create_session, get_session, list_agent_logs_for_session
+from app.schemas.review_analysis import ReviewConflictLevel
 from app.schemas.session import Merchant, SessionCreate, SessionStatus
+from app.schemas.trust_verification import TrustStatus
 
 
 @pytest.fixture
@@ -35,12 +40,17 @@ def test_orchestrator_progresses_happy_path(db_session: Session) -> None:
 
     steps = [
         UserIntentParsed(query="dog food", merchant=Merchant.AMAZON),
+        TrustCheckResult(status=TrustStatus.TRUSTED),
         NavResult(success=True, confidence=0.9, page_type="search_results"),
         VerificationResult(success=True),
+        ReviewAnalysisResult(conflict_level=ReviewConflictLevel.LOW),
         CheckoutProgress(proceed_to_checkout=True),
         CheckoutProgress(sensitive_step_required=True),
         HumanCheckpointResolved(approved=True),
         CheckoutProgress(completed=True),
+        HumanCheckpointResolved(approved=True),
+        PostPurchaseObserved(detected=True),
+        SessionCloseRequested(),
         SessionCloseRequested(),
     ]
 

@@ -1,6 +1,7 @@
 from browser_runtime.automation.helpers import (
     AMAZON_CART_URL,
     AMAZON_HOME_URL,
+    add_current_product_to_cart,
     action_guard,
     attempt_checkout_entry,
     choose_best_product_candidate,
@@ -15,12 +16,14 @@ from browser_runtime.automation.helpers import (
     safe_goto,
     safe_page_title,
     safe_page_url,
+    select_variant_option,
     submit_search_query,
 )
 
 __all__ = [
     "AMAZON_HOME_URL",
     "AMAZON_CART_URL",
+    "add_current_product_to_cart",
     "action_guard",
     "attempt_checkout_entry",
     "choose_best_product_candidate",
@@ -35,5 +38,6 @@ __all__ = [
     "safe_goto",
     "safe_page_title",
     "safe_page_url",
+    "select_variant_option",
     "submit_search_query",
 ]

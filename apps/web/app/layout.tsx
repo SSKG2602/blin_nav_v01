@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BlindNav Foundation",
-  description: "BlindNav / Luminar repository foundation bootstrap."
+  title: "BlindNav Demo Shell",
+  description: "BlindNav / Luminar operator shell for live demo execution."
 };
 
 export default function RootLayout({

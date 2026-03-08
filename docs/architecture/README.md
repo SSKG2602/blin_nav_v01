@@ -3,9 +3,10 @@
 This folder is reserved for architecture notes that belong to the runnable repo.
 
 Current status:
-- foundation only
-- no canonical feature modules implemented yet
-- use the sibling reference documents for planning context, not for in-repo source of truth
+- backend/runtime production path exists for deterministic agent orchestration
+- browser-runtime action + observation services are wired to backend tools layer
+- live-session websocket gateway is available for demo shell integration
+- use sibling reference documents as architecture source of truth for scope and behavior
 
 ## Backend infra v1
 
@@ -29,4 +30,13 @@ Current status:
 - Repositories in `app/repositories/session_repo.py` form the persistence boundary and convert between ORM rows and Pydantic schemas.
 - Future HTTP API and state-machine modules should call repositories rather than accessing ORM models directly.
 - Session HTTP endpoints now sit above this repository boundary and delegate persistence operations without embedding ORM access in route handlers.
-- No state machine behavior is implemented here yet; this remains a persistence-first schema spine.
+- State-machine, orchestrator, and evidence/context derivation layers now execute above this spine.
+
+## Live Gateway + Locale Path
+
+- `/api/live/sessions` and websocket stream endpoints provide a session-bound live interface.
+- Locale is normalized at ingress (`en-IN`, `hi-IN`) and propagated through:
+  - speech provider boundary
+  - live websocket event payloads
+  - spoken summary output.
+- Current speech provider defaults are deterministic fallback-safe; provider-specific STT/TTS integrations remain pluggable via dependency overrides.

@@ -4,28 +4,24 @@
 
 This repository is intentionally separate from `../Gemini_Hack`. The sibling `Gemini_Hack` folder is reference-only planning material used to pin structure, stack, and deployment direction. It is not part of the runnable repo, and nothing inside it should be modified from this repository.
 
-## Bootstrap Status
+## Current Status
 
-This repository is foundation-only at this stage.
+The repo now includes a working backend/runtime pipeline plus a demo-oriented web shell.
 
-Included now:
-- monorepo skeleton
-- minimal Next.js 15 frontend placeholder
-- minimal FastAPI backend placeholder
-- browser runtime placeholder
-- Docker Compose foundation
-- Cloud Run deployment skeleton
-- CI workflow skeleton
-- shared package, docs, data, and test placeholders
+Implemented now:
+- FastAPI backend with deterministic agent state machine + orchestrator
+- session, log, and session-context persistence
+- agent-step API, live-session API, checkpoint APIs, context API
+- browser-runtime service with merchant actions + observation endpoints
+- Gemini-backed services with deterministic safe fallbacks
+- multimodal/control-state/trust/review/final-confirmation/post-purchase derivations
+- Next.js demo shell wired to backend live/session APIs
+- Docker Compose wiring for frontend + backend + browser-runtime + Redis + Postgres
 
-Explicit non-goals for this bootstrap:
-- no product logic
-- no agent orchestration
-- no merchant adapters
-- no checkout automation
-- no Gemini workflows
-- no ranking or verification modules
-- no hidden mocks or fake flows
+Still intentionally limited:
+- no fully autonomous final-purchase execution
+- no polished production UI/branding
+- no full multilingual voice provider stack (fallback-safe live speech boundary exists)
 
 ## Pinned Ports
 
@@ -62,7 +58,7 @@ make install
 
 `make install` creates a local `.venv` for backend dependencies and installs frontend dependencies under `apps/web`.
 
-Run both placeholder services:
+Run backend + browser-runtime + frontend in one command:
 
 ```bash
 make dev
@@ -72,6 +68,7 @@ Run individual services:
 
 ```bash
 make dev-backend
+make dev-runtime
 make dev-frontend
 ```
 
@@ -79,6 +76,12 @@ Run backend tests:
 
 ```bash
 make test-backend
+```
+
+Run browser-runtime tests:
+
+```bash
+make test-runtime
 ```
 
 Run frontend checks:

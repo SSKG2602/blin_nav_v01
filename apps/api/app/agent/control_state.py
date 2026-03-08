@@ -59,6 +59,7 @@ def derive_sensitive_checkpoint(
     multimodal_assessment: MultimodalAssessment | None,
     page: PageUnderstanding | None,
     verification: ProductVerificationResult | None,
+    previous_checkpoint: SensitiveCheckpointRequest | None = None,
 ) -> SensitiveCheckpointRequest | None:
     if multimodal_assessment is None:
         return None
@@ -70,6 +71,13 @@ def derive_sensitive_checkpoint(
         return None
 
     kind = _infer_checkpoint_kind(page, verification)
+    if (
+        previous_checkpoint is not None
+        and previous_checkpoint.kind == kind
+        and previous_checkpoint.status != CheckpointStatus.PENDING
+    ):
+        return previous_checkpoint
+
     return SensitiveCheckpointRequest(
         kind=kind,
         status=CheckpointStatus.PENDING,

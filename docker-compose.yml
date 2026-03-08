@@ -16,6 +16,8 @@ services:
     depends_on:
       backend:
         condition: service_started
+      browser-runtime:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3100').then(() => process.exit(0)).catch(() => process.exit(1))\""]
       interval: 15s
@@ -35,6 +37,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3100}
       PRODUCT_WAKE_NAME: ${PRODUCT_WAKE_NAME:-Luminar}
+      BROWSER_RUNTIME_BASE_URL: http://browser-runtime:8200
+      LIVE_SPEECH_PROVIDER: ${LIVE_SPEECH_PROVIDER:-browser-native}
+      LIVE_ENABLE_BROWSER_TTS: ${LIVE_ENABLE_BROWSER_TTS:-true}
+      OCR_ENABLED: ${OCR_ENABLED:-true}
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+psycopg://blindnav:blindnav@postgres:5432/blindnav
     ports:
@@ -42,6 +48,8 @@ services:
     volumes:
       - ./apps/api:/workspace/apps/api
     depends_on:
+      browser-runtime:
+        condition: service_started
       redis:
         condition: service_healthy
       postgres:
@@ -52,6 +60,29 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  browser-runtime:
+    build:
+      context: .
+      dockerfile: infra/docker/playwright.Dockerfile
+    working_dir: /workspace/browser-runtime
+    command: uvicorn browser_runtime.main:app --host 0.0.0.0 --port 8200 --reload --app-dir /workspace/browser-runtime
+    environment:
+      SERVICE_NAME: ${BROWSER_RUNTIME_SERVICE_NAME:-blindnav-browser-runtime}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      PORT: 8200
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOW_FINAL_PURCHASE_AUTOMATION: ${ALLOW_FINAL_PURCHASE_AUTOMATION:-false}
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./browser-runtime:/workspace/browser-runtime
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from urllib.request import urlopen; urlopen('http://127.0.0.1:8200/health/live')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   redis:
     image: redis:7-alpine

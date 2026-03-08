@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from browser_runtime.automation import (
     AMAZON_CART_URL,
     AMAZON_HOME_URL,
+    add_current_product_to_cart,
     action_guard,
     attempt_checkout_entry,
     dismiss_common_interruptions,
@@ -18,8 +19,10 @@ from browser_runtime.automation import (
     recover_to_stable_page,
     safe_goto,
     safe_page_url,
+    select_variant_option,
     submit_search_query,
 )
+from browser_runtime.config import settings
 from browser_runtime.driver import browser_session_manager
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,12 @@ class InspectProductPageRequest(BaseModel):
 
 class HandleErrorRecoveryRequest(BaseModel):
     error_type: str | None = None
+
+
+class SelectVariantRequest(BaseModel):
+    variant_hint: str | None = None
+    size_hint: str | None = None
+    color_hint: str | None = None
 
 
 class EmptyActionRequest(BaseModel):
@@ -142,19 +151,106 @@ def inspect_product_page(
 @router.post("/{session_id}/actions/verify_product_variant", status_code=status.HTTP_204_NO_CONTENT)
 def verify_product_variant(
     session_id: UUID,
-    payload: EmptyActionRequest = Body(default_factory=EmptyActionRequest),
+    payload: SelectVariantRequest = Body(default_factory=SelectVariantRequest),
 ) -> Response:
-    _log_action("verify_product_variant", session_id)
+    _log_action(
+        "verify_product_variant",
+        session_id,
+        variant_hint=payload.variant_hint,
+        size_hint=payload.size_hint,
+        color_hint=payload.color_hint,
+    )
     try:
         page = browser_session_manager.get_page(session_id)
         notes = dismiss_common_interruptions(page)
+        selected, variant_notes, signature = select_variant_option(
+            page,
+            session_id=session_id,
+            variant_hint=payload.variant_hint,
+            size_hint=payload.size_hint,
+            color_hint=payload.color_hint,
+        )
+        notes.extend(variant_notes)
         evidence = extract_product_detail_evidence(page)
+        strong_boundary = bool(
+            evidence.get("title")
+            and (evidence.get("price_text") or evidence.get("availability_text"))
+        )
         logger.info(
             "product_variant_info %s",
-            {"session_id": str(session_id), "notes": notes or None, **evidence},
+            {
+                "session_id": str(session_id),
+                "variant_selected": selected,
+                "variant_signature": signature,
+                "strong_boundary": strong_boundary,
+                "notes": notes or None,
+                **evidence,
+            },
         )
     except Exception as exc:
         logger.error("verify_product_variant failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
+@router.post("/{session_id}/actions/select_variant", status_code=status.HTTP_204_NO_CONTENT)
+def select_variant(
+    session_id: UUID,
+    payload: SelectVariantRequest = Body(default_factory=SelectVariantRequest),
+) -> Response:
+    _log_action(
+        "select_variant",
+        session_id,
+        variant_hint=payload.variant_hint,
+        size_hint=payload.size_hint,
+        color_hint=payload.color_hint,
+    )
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        selected, selection_notes, signature = select_variant_option(
+            page,
+            session_id=session_id,
+            variant_hint=payload.variant_hint,
+            size_hint=payload.size_hint,
+            color_hint=payload.color_hint,
+        )
+        notes.extend(selection_notes)
+        logger.info(
+            "select_variant_summary %s",
+            {
+                "session_id": str(session_id),
+                "selected": selected,
+                "variant_signature": signature,
+                "notes": notes or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("select_variant failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
+@router.post("/{session_id}/actions/add_to_cart", status_code=status.HTTP_204_NO_CONTENT)
+def add_to_cart(
+    session_id: UUID,
+    payload: EmptyActionRequest = Body(default_factory=EmptyActionRequest),
+) -> Response:
+    _log_action("add_to_cart", session_id)
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        added, add_notes = add_current_product_to_cart(page, session_id=session_id)
+        notes.extend(add_notes)
+        logger.info(
+            "add_to_cart_summary %s",
+            {
+                "session_id": str(session_id),
+                "added": added,
+                "current_url": safe_page_url(page),
+                "notes": notes or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("add_to_cart failed for session %s: %s", session_id, exc)
     return _accepted_response()
 
 
@@ -172,6 +268,10 @@ def review_cart(
             if not safe_goto(page, AMAZON_CART_URL):
                 notes.append("cart_navigation_failed")
         cart_evidence = extract_cart_evidence(page)
+        if cart_evidence.get("cart_item_count") in {0, None}:
+            notes.append("cart_items_not_confirmed")
+        if cart_evidence.get("checkout_ready") is None:
+            notes.append("checkout_readiness_unclear")
         logger.info(
             "review_cart_summary %s",
             {
@@ -196,12 +296,33 @@ def perform_checkout(
         page = browser_session_manager.get_page(session_id)
         notes = dismiss_common_interruptions(page)
         current_url = safe_page_url(page)
+        if action_guard.should_skip_duplicate_checkout_attempt(
+            session_id,
+            current_url=current_url,
+        ):
+            notes.append("duplicate_checkout_attempt_skipped")
+            logger.info(
+                "perform_checkout_initiated %s",
+                {
+                    "session_id": str(session_id),
+                    "initiated": True,
+                    "current_url": current_url,
+                    "notes": notes or None,
+                },
+            )
+            return _accepted_response()
+
         if current_url is None or ("cart" not in current_url.lower() and "checkout" not in current_url.lower()):
             if not safe_goto(page, AMAZON_CART_URL):
                 notes.append("cart_navigation_before_checkout_failed")
 
         initiated, checkout_notes = attempt_checkout_entry(page)
         notes.extend(checkout_notes)
+        if initiated:
+            action_guard.record_checkout_attempt(
+                session_id,
+                current_url=safe_page_url(page),
+            )
         logger.info(
             "perform_checkout_initiated %s",
             {
@@ -213,6 +334,71 @@ def perform_checkout(
         )
     except Exception as exc:
         logger.error("perform_checkout failed for session %s: %s", session_id, exc)
+    return _accepted_response()
+
+
+@router.post("/{session_id}/actions/finalize_purchase", status_code=status.HTTP_204_NO_CONTENT)
+def finalize_purchase(
+    session_id: UUID,
+    payload: EmptyActionRequest = Body(default_factory=EmptyActionRequest),
+) -> Response:
+    _log_action("finalize_purchase", session_id)
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        current_url = safe_page_url(page) or ""
+        current_url_lower = current_url.lower()
+
+        confirmation_visible = any(
+            token in current_url_lower
+            for token in ("order-confirmation", "thankyou", "order-details", "order")
+        )
+        if confirmation_visible:
+            notes.append("order_confirmation_already_visible")
+        elif not settings.ALLOW_FINAL_PURCHASE_AUTOMATION:
+            notes.append("final_purchase_automation_disabled")
+        else:
+            clicked = False
+            selectors = [
+                'input[name="placeYourOrder1"]',
+                '#submitOrderButtonId',
+                '#placeYourOrder',
+                '#bottomSubmitOrderButtonId',
+                'button[name="placeYourOrder1"]',
+                'input[aria-label*="Place your order"]',
+                'button[aria-label*="Place your order"]',
+            ]
+            for selector in selectors:
+                locator = getattr(page, "locator", None)
+                if not callable(locator):
+                    continue
+                button = locator(selector)
+                is_visible = getattr(button, "is_visible", None)
+                if callable(is_visible) and not is_visible(timeout=1500):
+                    continue
+                click = getattr(button, "click", None)
+                if not callable(click):
+                    continue
+                click(timeout=3000)
+                wait_for_load_state = getattr(page, "wait_for_load_state", None)
+                if callable(wait_for_load_state):
+                    wait_for_load_state("domcontentloaded")
+                clicked = True
+                notes.append(f"final_purchase_clicked:{selector}")
+                break
+            if not clicked:
+                notes.append("final_purchase_button_not_found")
+
+        logger.info(
+            "finalize_purchase_summary %s",
+            {
+                "session_id": str(session_id),
+                "current_url": safe_page_url(page),
+                "notes": notes or None,
+            },
+        )
+    except Exception as exc:
+        logger.error("finalize_purchase failed for session %s: %s", session_id, exc)
     return _accepted_response()
 
 

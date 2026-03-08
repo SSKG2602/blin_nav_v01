@@ -255,7 +255,10 @@ def derive_final_purchase_confirmation(
     previous_confirmation: FinalPurchaseConfirmation | None = None,
 ) -> FinalPurchaseConfirmation:
     if checkpoint is not None:
-        if checkpoint.status == CheckpointStatus.PENDING:
+        if (
+            checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
+            and checkpoint.status == CheckpointStatus.PENDING
+        ):
             return FinalPurchaseConfirmation(
                 required=True,
                 confirmed=False,
@@ -263,15 +266,22 @@ def derive_final_purchase_confirmation(
                 confirmation_phrase_expected="confirm purchase",
                 notes=f"Checkpoint pending: {checkpoint.kind.value}",
             )
-        if checkpoint.status == CheckpointStatus.APPROVED:
+        if (
+            checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
+            and checkpoint.status == CheckpointStatus.APPROVED
+        ):
             return FinalPurchaseConfirmation(
                 required=True,
-                confirmed=True,
-                prompt_to_user=None,
+                confirmed=False,
+                prompt_to_user="Final checkpoint cleared. Please provide explicit purchase confirmation.",
                 confirmation_phrase_expected="confirm purchase",
-                notes=f"Checkpoint approved: {checkpoint.kind.value}",
+                notes=f"Checkpoint approved: {checkpoint.kind.value}. Awaiting explicit final confirmation.",
             )
-        if checkpoint.status in {CheckpointStatus.REJECTED, CheckpointStatus.CANCELLED, CheckpointStatus.EXPIRED}:
+        if (
+            checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
+            and checkpoint.status
+            in {CheckpointStatus.REJECTED, CheckpointStatus.CANCELLED, CheckpointStatus.EXPIRED}
+        ):
             return FinalPurchaseConfirmation(
                 required=True,
                 confirmed=False,

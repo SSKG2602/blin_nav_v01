@@ -71,3 +71,24 @@ This API layer is transport + persistence only. Agent state machine behavior, Ge
   - Returns `404` with `{"detail": "Session not found"}` when the session does not exist.
 
 This API is backend-only orchestration. It does not directly call Gemini or the browser runtime; it just exposes state-machine decisions and audit trail.
+
+## Live Session API v1
+
+- `POST /api/live/sessions`
+  - Creates a live session wrapper over an existing shopping session.
+  - Request supports `merchant` and `locale`.
+  - Returns `session_id`, websocket path, and normalized locale.
+- `WS /api/live/sessions/{session_id}/stream`
+  - Event-driven gateway for voice/demo shell interaction.
+  - Supports events: `start`, `user_text`, `audio_chunk`, `interrupt`, `cancel`, `checkpoint_response`, `ping`.
+  - Emits events: `session_connected`, `session_started`, `transcription`, `interpreted_intent`, `agent_step`, `spoken_output`, `checkpoint_required`, `checkpoint_resolved`, `error`, `pong`.
+  - Locale is normalized (`en-IN`, `hi-IN`) and propagated to transcription/spoken output payloads.
+
+## Context + Checkpoint Operational APIs
+
+- `GET /api/sessions/{session_id}/context`
+  - Returns latest persisted evidence and decision-support snapshot for the session.
+- `GET /api/sessions/{session_id}/checkpoint`
+  - Returns current checkpoint state when present.
+- `POST /api/sessions/{session_id}/checkpoint/resolve`
+  - Resolves pending checkpoint with operator approval/rejection.

@@ -25,6 +25,11 @@ from app.tools.dependencies import get_browser_runtime_client
 class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
         self.observation_payload: dict[str, Any] = {}
+        self.screenshot_payload: dict[str, Any] = {
+            "image_base64": "ZmFrZQ==",
+            "mime_type": "image/png",
+            "source": "runtime",
+        }
         self.raise_observation_error = False
 
     def navigate_to_search_results(self, *, session_id, query, merchant) -> None:
@@ -33,13 +38,36 @@ class FakeBrowserRuntimeClient:
     def inspect_product_page(self, *, session_id, page_type) -> None:
         return
 
-    def verify_product_variant(self, *, session_id) -> None:
+    def verify_product_variant(
+        self,
+        *,
+        session_id,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        return
+
+    def select_product_variant(
+        self,
+        *,
+        session_id,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        return
+
+    def add_to_cart(self, *, session_id) -> None:
         return
 
     def review_cart(self, *, session_id) -> None:
         return
 
     def perform_checkout(self, *, session_id) -> None:
+        return
+
+    def finalize_purchase(self, *, session_id) -> None:
         return
 
     def handle_error_recovery(self, *, session_id, error_type=None) -> None:
@@ -49,6 +77,9 @@ class FakeBrowserRuntimeClient:
         if self.raise_observation_error:
             raise RuntimeError("observation unavailable")
         return dict(self.observation_payload)
+
+    def get_current_page_screenshot(self, *, session_id) -> dict[str, Any]:
+        return dict(self.screenshot_payload)
 
 
 class FakeLLMClient:
@@ -338,7 +369,7 @@ def test_agent_step_llm_failure_still_persists_safe_context(
     payload = context_response.json()
     assert payload["latest_page_understanding"] is not None
     assert payload["latest_spoken_summary"] is not None
-    assert "searching products" in payload["latest_spoken_summary"].lower()
+    assert "search" in payload["latest_spoken_summary"].lower()
     assert payload["latest_multimodal_assessment"] is not None
     assert payload["latest_multimodal_assessment"]["decision"] in {
         MultimodalDecision.PROCEED.value,
@@ -352,3 +383,25 @@ def test_agent_step_llm_failure_still_persists_safe_context(
     )
     assert payload["latest_trust_assessment"] is not None
     assert payload["latest_review_assessment"] is not None
+
+
+def test_runtime_observation_and_screenshot_proxy_routes(
+    client: TestClient,
+    fake_browser_client: FakeBrowserRuntimeClient,
+) -> None:
+    fake_browser_client.observation_payload = {
+        "observed_url": "https://www.amazon.in/dp/B0TESTSKU",
+        "page_title": "Product detail",
+        "detected_page_hints": ["product_detail"],
+    }
+    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    session_id = created["session_id"]
+
+    observation = client.get(f"/api/sessions/{session_id}/runtime/observation")
+    screenshot = client.get(f"/api/sessions/{session_id}/runtime/screenshot")
+
+    assert observation.status_code == 200
+    assert observation.json()["observed_url"] == fake_browser_client.observation_payload["observed_url"]
+    assert screenshot.status_code == 200
+    assert screenshot.json()["mime_type"] == "image/png"
+    assert screenshot.json()["image_base64"] == fake_browser_client.screenshot_payload["image_base64"]

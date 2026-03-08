@@ -46,8 +46,38 @@ class AgentCommandExecutor:
             )
             return
 
+        if command.type == AgentCommandType.SELECT_PRODUCT_VARIANT:
+            variant_hint_value = payload.get("variant_hint")
+            size_hint_value = payload.get("size_hint")
+            color_hint_value = payload.get("color_hint")
+            variant_hint = variant_hint_value if isinstance(variant_hint_value, str) else None
+            size_hint = size_hint_value if isinstance(size_hint_value, str) else None
+            color_hint = color_hint_value if isinstance(color_hint_value, str) else None
+            self._browser.select_product_variant(
+                session_id=session_id,
+                variant_hint=variant_hint,
+                size_hint=size_hint,
+                color_hint=color_hint,
+            )
+            return
+
         if command.type == AgentCommandType.VERIFY_PRODUCT_VARIANT:
-            self._browser.verify_product_variant(session_id=session_id)
+            variant_hint_value = payload.get("variant_hint")
+            size_hint_value = payload.get("size_hint")
+            color_hint_value = payload.get("color_hint")
+            variant_hint = variant_hint_value if isinstance(variant_hint_value, str) else None
+            size_hint = size_hint_value if isinstance(size_hint_value, str) else None
+            color_hint = color_hint_value if isinstance(color_hint_value, str) else None
+            self._browser.verify_product_variant(
+                session_id=session_id,
+                variant_hint=variant_hint,
+                size_hint=size_hint,
+                color_hint=color_hint,
+            )
+            return
+
+        if command.type == AgentCommandType.ADD_TO_CART:
+            self._browser.add_to_cart(session_id=session_id)
             return
 
         if command.type == AgentCommandType.REVIEW_CART:
@@ -56,6 +86,10 @@ class AgentCommandExecutor:
 
         if command.type == AgentCommandType.PERFORM_CHECKOUT:
             self._browser.perform_checkout(session_id=session_id)
+            return
+
+        if command.type == AgentCommandType.MARK_ORDER_PLACED:
+            self._browser.finalize_purchase(session_id=session_id)
             return
 
         if command.type == AgentCommandType.HANDLE_ERROR_RECOVERY:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from typing import Any
 
 from pydantic import ValidationError
@@ -76,7 +77,11 @@ _ACTION_STOPWORDS = {
 def _normalize_text(value: str | None) -> str:
     if not value:
         return ""
-    normalized = re.sub(r"[^a-z0-9\s]", " ", value.lower())
+    lowered = unicodedata.normalize("NFKC", value.lower())
+    normalized = "".join(
+        ch if (ch.isspace() or unicodedata.category(ch)[0] in {"L", "N", "M"}) else " "
+        for ch in lowered
+    )
     return re.sub(r"\s+", " ", normalized).strip()
 
 
@@ -113,11 +118,13 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
         intent_model: str | None = None,
         summary_model: str | None = None,
         multimodal_model: str | None = None,
+        vision_model: str | None = None,
     ) -> None:
         self._api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self._intent_model = intent_model or settings.GEMINI_MODEL_INTENT
         self._summary_model = summary_model or settings.GEMINI_MODEL_SUMMARY
         self._multimodal_model = multimodal_model or settings.GEMINI_MODEL_MULTIMODAL
+        self._vision_model = vision_model or settings.GEMINI_MODEL_VISION
         self._gemini_client: Any | None = None
 
         if not self._api_key:
@@ -168,26 +175,82 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
         return None
 
     def _detect_action(self, normalized: str) -> ShoppingAction:
-        if any(token in normalized for token in {"cancel", "stop", "abort", "nevermind", "never mind"}):
+        if any(
+            token in normalized
+            for token in {
+                "cancel",
+                "stop",
+                "abort",
+                "nevermind",
+                "never mind",
+                "रद्द",
+                "रोक",
+                "कैंसल",
+            }
+        ):
             return ShoppingAction.CANCEL
-        if any(token in normalized for token in {"checkout", "proceed", "pay now", "place order"}):
+        if any(
+            token in normalized
+            for token in {
+                "checkout",
+                "proceed",
+                "pay now",
+                "place order",
+                "चेकआउट",
+                "भुगतान",
+                "पे",
+            }
+        ):
             return ShoppingAction.PROCEED_CHECKOUT
-        if any(token in normalized for token in {"add to cart", "add cart", "add this"}):
+        if any(
+            token in normalized
+            for token in {
+                "add to cart",
+                "add cart",
+                "add this",
+                "कार्ट में डालो",
+                "कार्ट में जोड़ो",
+                "कार्ट",
+            }
+        ):
             return ShoppingAction.ADD_TO_CART
-        if any(token in normalized for token in {"select", "choose", "open first", "pick first"}):
+        if any(
+            token in normalized
+            for token in {"select", "choose", "open first", "pick first", "चुनो", "पहला", "चुनिए"}
+        ):
             return ShoppingAction.SELECT_PRODUCT
-        if any(token in normalized for token in {"refine", "filter", "sort", "cheaper", "under ", "above "}):
+        if any(
+            token in normalized
+            for token in {"refine", "filter", "sort", "cheaper", "under ", "above ", "फ़िल्टर", "सस्ता"}
+        ):
             return ShoppingAction.REFINE_RESULTS
-        if any(token in normalized for token in {"search", "find", "look for", "buy", "get me", "show me"}):
+        if any(
+            token in normalized
+            for token in {
+                "search",
+                "find",
+                "look for",
+                "buy",
+                "get me",
+                "show me",
+                "खोज",
+                "खोजो",
+                "ढूंढ",
+                "ढूंढो",
+                "दूँढो",
+                "दिखाओ",
+                "लाओ",
+            }
+        ):
             return ShoppingAction.SEARCH_PRODUCT
         return ShoppingAction.UNKNOWN
 
     def _detect_merchant(self, normalized: str) -> str | None:
-        if "amazon" in normalized:
+        if "amazon" in normalized or "अमेज़न" in normalized:
             return "amazon.in"
-        if "flipkart" in normalized:
+        if "flipkart" in normalized or "फ्लिपकार्ट" in normalized:
             return "flipkart.com"
-        if "meesho" in normalized:
+        if "meesho" in normalized or "मीशो" in normalized:
             return "meesho.com"
         return None
 
@@ -440,6 +503,89 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
                 return cleaned[:320]
         return self._fallback_summary(page, verification)
 
+    def _fallback_visual_page(
+        self,
+        *,
+        raw_observation: dict[str, object],
+        screenshot: dict[str, object] | None,
+    ) -> dict[str, object]:
+        hints = raw_observation.get("detected_page_hints")
+        page_type = "UNKNOWN"
+        if isinstance(hints, list) and hints:
+            first = hints[0]
+            if isinstance(first, str) and first.strip():
+                page_type = first.strip().upper()
+
+        notes = "Fallback visual reasoning: relying on browser observation hints."
+        image_available = bool(
+            screenshot
+            and isinstance(screenshot.get("image_base64"), str)
+            and screenshot.get("image_base64")
+        )
+        if image_available:
+            notes = "Fallback visual reasoning used screenshot metadata only."
+
+        return {
+            "page_type": page_type,
+            "confidence": 0.42,
+            "notes": notes,
+        }
+
+    def _gemini_visual_page(
+        self,
+        *,
+        raw_observation: dict[str, object],
+        screenshot: dict[str, object] | None,
+    ) -> dict[str, object] | None:
+        if self._gemini_client is None:
+            return None
+
+        prompt = (
+            "You are BlindNav visual page reasoner. Return ONLY JSON.\n"
+            "Schema:\n"
+            "{\n"
+            '  "page_type": "HOME|SEARCH_RESULTS|PRODUCT_DETAIL|CART|CHECKOUT|UNKNOWN",\n'
+            '  "confidence": 0.0,\n'
+            '  "notes": "short conservative note"\n'
+            "}\n"
+            f"Browser observation JSON: {json.dumps(raw_observation, ensure_ascii=True)}\n"
+            "Use UNKNOWN when uncertain. Be conservative."
+        )
+
+        image_base64: str | None = None
+        if screenshot is not None:
+            raw_image = screenshot.get("image_base64")
+            if isinstance(raw_image, str) and raw_image.strip():
+                image_base64 = raw_image.strip()
+
+        if image_base64 is None:
+            text = self._generate_text(model=self._vision_model, prompt=prompt)
+            if not text:
+                return None
+            payload = _extract_first_json_object(text)
+            return payload if isinstance(payload, dict) else None
+
+        try:  # pragma: no cover - depends on SDK availability/runtime
+            image_bytes = None
+            import base64
+
+            image_bytes = base64.b64decode(image_base64, validate=False)
+            response = self._gemini_client.models.generate_content(
+                model=self._vision_model,
+                contents=[
+                    prompt,
+                    {"mime_type": "image/png", "data": image_bytes},
+                ],
+            )
+            text = getattr(response, "text", None)
+            if not isinstance(text, str) or not text.strip():
+                return None
+            payload = _extract_first_json_object(text)
+            return payload if isinstance(payload, dict) else None
+        except Exception as exc:  # pragma: no cover - external dependency behavior
+            logger.warning("Gemini visual generation failed; using fallback: %s", exc)
+            return None
+
     def _clean_string_list(self, value: Any) -> list[str]:
         if not isinstance(value, list):
             return []
@@ -584,4 +730,21 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
             page=page,
             verification=verification,
             spoken_summary=spoken_summary,
+        )
+
+    def analyze_visual_page(
+        self,
+        *,
+        raw_observation: dict[str, object],
+        screenshot: dict[str, object] | None,
+    ) -> dict[str, object]:
+        parsed = self._gemini_visual_page(
+            raw_observation=raw_observation,
+            screenshot=screenshot,
+        )
+        if isinstance(parsed, dict):
+            return parsed
+        return self._fallback_visual_page(
+            raw_observation=raw_observation,
+            screenshot=screenshot,
         )

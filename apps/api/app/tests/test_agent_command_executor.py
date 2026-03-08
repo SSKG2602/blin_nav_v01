@@ -47,10 +47,46 @@ class FakeBrowserRuntimeClient(BrowserRuntimeClient):
         self,
         *,
         session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
     ) -> None:
         self.calls.append(
             {
                 "method": "verify_product_variant",
+                "session_id": session_id,
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            }
+        )
+
+    def select_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        self.calls.append(
+            {
+                "method": "select_product_variant",
+                "session_id": session_id,
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            }
+        )
+
+    def add_to_cart(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        self.calls.append(
+            {
+                "method": "add_to_cart",
                 "session_id": session_id,
             }
         )
@@ -79,6 +115,18 @@ class FakeBrowserRuntimeClient(BrowserRuntimeClient):
             }
         )
 
+    def finalize_purchase(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        self.calls.append(
+            {
+                "method": "finalize_purchase",
+                "session_id": session_id,
+            }
+        )
+
     def handle_error_recovery(
         self,
         *,
@@ -97,6 +145,15 @@ class FakeBrowserRuntimeClient(BrowserRuntimeClient):
         self.calls.append(
             {
                 "method": "get_current_page_observation",
+                "session_id": session_id,
+            }
+        )
+        return {}
+
+    def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "method": "get_current_page_screenshot",
                 "session_id": session_id,
             }
         )
@@ -165,6 +222,50 @@ def test_execute_error_recovery_mapping() -> None:
     assert len(fake.calls) == 1
     assert fake.calls[0]["method"] == "handle_error_recovery"
     assert fake.calls[0]["error_type"] == "navigation_error"
+
+
+def test_execute_mark_order_placed_mapping() -> None:
+    fake = FakeBrowserRuntimeClient()
+    executor = AgentCommandExecutor(fake)
+    session_id = uuid4()
+    command = AgentCommand(
+        type=AgentCommandType.MARK_ORDER_PLACED,
+        payload={},
+    )
+
+    executor.execute(session_id, command)
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["method"] == "finalize_purchase"
+
+
+def test_execute_select_variant_mapping() -> None:
+    fake = FakeBrowserRuntimeClient()
+    executor = AgentCommandExecutor(fake)
+    session_id = uuid4()
+    command = AgentCommand(
+        type=AgentCommandType.SELECT_PRODUCT_VARIANT,
+        payload={"variant_hint": "3kg", "size_hint": "3kg"},
+    )
+
+    executor.execute(session_id, command)
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["method"] == "select_product_variant"
+    assert fake.calls[0]["variant_hint"] == "3kg"
+    assert fake.calls[0]["size_hint"] == "3kg"
+
+
+def test_execute_add_to_cart_mapping() -> None:
+    fake = FakeBrowserRuntimeClient()
+    executor = AgentCommandExecutor(fake)
+    session_id = uuid4()
+    command = AgentCommand(type=AgentCommandType.ADD_TO_CART, payload={})
+
+    executor.execute(session_id, command)
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["method"] == "add_to_cart"
 
 
 def test_execute_many_preserves_order() -> None:

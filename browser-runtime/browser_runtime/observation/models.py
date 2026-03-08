@@ -23,3 +23,9 @@ class RuntimePageObservation(BaseModel):
     checkout_ready: bool | None = None
     notes: str | None = None
 
+
+class RuntimeScreenshotObservation(BaseModel):
+    image_base64: str | None = None
+    mime_type: str = "image/png"
+    source: str = "runtime"
+    notes: str | None = None

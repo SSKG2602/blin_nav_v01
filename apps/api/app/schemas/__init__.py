@@ -8,6 +8,13 @@ from app.schemas.control_state import (
     SensitiveCheckpointRequest,
 )
 from app.schemas.intent import InterpretedUserIntent, ShoppingAction
+from app.schemas.live_session import (
+    LiveEventType,
+    LiveGatewayEvent,
+    LiveSessionCreateRequest,
+    LiveSessionCreateResponse,
+    LiveSpeechPayload,
+)
 from app.schemas.multimodal_assessment import (
     ConfidenceBand,
     MultimodalAssessment,
@@ -47,6 +54,11 @@ __all__ = [
     "TrustAssessment",
     "TrustStatus",
     "InterpretedUserIntent",
+    "LiveEventType",
+    "LiveGatewayEvent",
+    "LiveSessionCreateRequest",
+    "LiveSessionCreateResponse",
+    "LiveSpeechPayload",
     "Merchant",
     "MultimodalAssessment",
     "MultimodalDecision",

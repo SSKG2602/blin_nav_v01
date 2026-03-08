@@ -53,6 +53,23 @@ def test_verify_product_variant_dummy_mode() -> None:
     assert resp.status_code == 204
 
 
+def test_select_variant_dummy_mode() -> None:
+    force_dummy_mode()
+    session_id = uuid4()
+    resp = client.post(
+        f"/sessions/{session_id}/actions/select_variant",
+        json={"variant_hint": "3kg"},
+    )
+    assert resp.status_code == 204
+
+
+def test_add_to_cart_dummy_mode() -> None:
+    force_dummy_mode()
+    session_id = uuid4()
+    resp = client.post(f"/sessions/{session_id}/actions/add_to_cart")
+    assert resp.status_code == 204
+
+
 def test_review_cart_dummy_mode() -> None:
     force_dummy_mode()
     session_id = uuid4()
@@ -67,6 +84,13 @@ def test_perform_checkout_dummy_mode() -> None:
     assert resp.status_code == 204
 
 
+def test_finalize_purchase_dummy_mode() -> None:
+    force_dummy_mode()
+    session_id = uuid4()
+    resp = client.post(f"/sessions/{session_id}/actions/finalize_purchase")
+    assert resp.status_code == 204
+
+
 def test_handle_error_recovery_dummy_mode() -> None:
     force_dummy_mode()
     session_id = uuid4()
@@ -75,4 +99,3 @@ def test_handle_error_recovery_dummy_mode() -> None:
         json={"error_type": "navigation_error"},
     )
     assert resp.status_code == 204
-

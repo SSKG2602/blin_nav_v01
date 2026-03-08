@@ -31,6 +31,19 @@ def test_fallback_intent_parsing_for_cancel_and_checkout() -> None:
     assert checkout_intent.action == ShoppingAction.PROCEED_CHECKOUT
 
 
+def test_fallback_intent_parsing_supports_hindi_keywords() -> None:
+    service = GeminiIntentSummaryService(api_key="")
+
+    search_intent = service.interpret_user_intent("amazon पर pedigree dog food 3kg खोजो")
+    checkout_intent = service.interpret_user_intent("checkout करो")
+
+    assert search_intent.action == ShoppingAction.SEARCH_PRODUCT
+    assert search_intent.merchant == "amazon.in"
+    assert search_intent.product_intent is not None
+    assert search_intent.product_intent.size_text == "3kg"
+    assert checkout_intent.action == ShoppingAction.PROCEED_CHECKOUT
+
+
 def test_fallback_when_gemini_sdk_or_key_missing() -> None:
     service = GeminiIntentSummaryService(api_key="")
     result = service.interpret_user_intent("search for dog food")
@@ -210,3 +223,28 @@ def test_multimodal_fallback_halts_for_insufficient_evidence() -> None:
     )
     assert assessment.decision == MultimodalDecision.HALT_LOW_CONFIDENCE
     assert assessment.should_halt_low_confidence is True
+
+
+def test_visual_page_analysis_fallback_without_gemini() -> None:
+    service = GeminiIntentSummaryService(api_key="")
+    result = service.analyze_visual_page(
+        raw_observation={
+            "detected_page_hints": ["search_results"],
+            "page_title": "Results",
+        },
+        screenshot={"image_base64": "ZmFrZQ==", "mime_type": "image/png"},
+    )
+
+    assert result["page_type"] == "SEARCH_RESULTS"
+    assert isinstance(result.get("notes"), str)
+
+
+def test_visual_page_analysis_fallback_unknown_when_hints_missing() -> None:
+    service = GeminiIntentSummaryService(api_key="")
+    result = service.analyze_visual_page(
+        raw_observation={"page_title": "Unknown"},
+        screenshot=None,
+    )
+
+    assert result["page_type"] == "UNKNOWN"
+    assert "Fallback visual reasoning" in str(result.get("notes"))

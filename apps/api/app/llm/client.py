@@ -28,3 +28,11 @@ class BlindNavLLMClient(Protocol):
         spoken_summary: str | None = None,
     ) -> MultimodalAssessment:
         ...
+
+    def analyze_visual_page(
+        self,
+        *,
+        raw_observation: dict[str, object],
+        screenshot: dict[str, object] | None,
+    ) -> dict[str, object]:
+        ...

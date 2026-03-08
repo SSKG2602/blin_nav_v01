@@ -104,9 +104,43 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
         self,
         *,
         session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
     ) -> None:
         self._post(
             f"/sessions/{session_id}/actions/verify_product_variant",
+            {
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            },
+        )
+
+    def select_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/select_variant",
+            {
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            },
+        )
+
+    def add_to_cart(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/add_to_cart",
             {},
         )
 
@@ -130,6 +164,16 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             {},
         )
 
+    def finalize_purchase(
+        self,
+        *,
+        session_id: UUID,
+    ) -> None:
+        self._post(
+            f"/sessions/{session_id}/actions/finalize_purchase",
+            {},
+        )
+
     def handle_error_recovery(
         self,
         *,
@@ -145,3 +189,6 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
 
     def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
         return self._get_json(f"/sessions/{session_id}/observation/current_page")
+
+    def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
+        return self._get_json(f"/sessions/{session_id}/observation/screenshot")

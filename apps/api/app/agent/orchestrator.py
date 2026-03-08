@@ -33,7 +33,12 @@ class AgentOrchestrator:
         if row is None:
             return
 
-        if new_state in {AgentState.SESSION_CLOSING, AgentState.DONE}:
+        if new_state in {
+            AgentState.ORDER_PLACED,
+            AgentState.POST_PURCHASE_SUMMARY,
+            AgentState.SESSION_CLOSING,
+            AgentState.DONE,
+        }:
             row.status = SessionStatus.ENDED.value
         elif new_state in {AgentState.ERROR_RECOVERY, AgentState.LOW_CONFIDENCE_HALT}:
             row.status = SessionStatus.ERROR.value

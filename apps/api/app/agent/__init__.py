@@ -18,6 +18,7 @@ from app.agent.multimodal import build_fallback_multimodal_assessment
 from app.agent.observation import (
     build_page_understanding_from_browser_observation,
     capture_page_understanding,
+    capture_page_understanding_hybrid,
 )
 from app.agent.orchestrator import AgentOrchestrator
 from app.agent.perception import classify_page_understanding
@@ -40,6 +41,7 @@ __all__ = [
     "derive_trust_assessment",
     "build_page_understanding_from_browser_observation",
     "capture_page_understanding",
+    "capture_page_understanding_hybrid",
     "classify_page_understanding",
     "next_state",
     "resolve_product_intent_from_event",

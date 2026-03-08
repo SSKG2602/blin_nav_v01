@@ -9,7 +9,7 @@ configure_logging()
 
 app = FastAPI(
     title="BlindNav API",
-    description="Foundation-only FastAPI placeholder for BlindNav.",
+    description="BlindNav backend for deterministic shopping orchestration, live session control, and browser-grounded runtime integration.",
     version="0.1.0",
 )
 

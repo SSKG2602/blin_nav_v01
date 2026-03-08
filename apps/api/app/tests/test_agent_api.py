@@ -56,10 +56,46 @@ class FakeBrowserRuntimeClient:
             }
         )
 
-    def verify_product_variant(self, *, session_id: UUID) -> None:
+    def verify_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
         self.calls.append(
             {
                 "method": "verify_product_variant",
+                "session_id": session_id,
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            }
+        )
+
+    def select_product_variant(
+        self,
+        *,
+        session_id: UUID,
+        variant_hint: str | None = None,
+        size_hint: str | None = None,
+        color_hint: str | None = None,
+    ) -> None:
+        self.calls.append(
+            {
+                "method": "select_product_variant",
+                "session_id": session_id,
+                "variant_hint": variant_hint,
+                "size_hint": size_hint,
+                "color_hint": color_hint,
+            }
+        )
+
+    def add_to_cart(self, *, session_id: UUID) -> None:
+        self.calls.append(
+            {
+                "method": "add_to_cart",
                 "session_id": session_id,
             }
         )
@@ -80,6 +116,14 @@ class FakeBrowserRuntimeClient:
             }
         )
 
+    def finalize_purchase(self, *, session_id: UUID) -> None:
+        self.calls.append(
+            {
+                "method": "finalize_purchase",
+                "session_id": session_id,
+            }
+        )
+
     def handle_error_recovery(
         self,
         *,
@@ -95,6 +139,9 @@ class FakeBrowserRuntimeClient:
         )
 
     def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
+        return {}
+
+    def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return {}
 
 
@@ -238,6 +285,8 @@ def test_agent_step_happy_path_multi_step(
     assert [call["method"] for call in fake_browser_client.calls] == [
         "navigate_to_search_results",
         "inspect_product_page",
+        "select_product_variant",
+        "add_to_cart",
         "review_cart",
         "perform_checkout",
     ]

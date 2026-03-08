@@ -98,3 +98,16 @@ def test_checkout_like_observation_snapshot() -> None:
 
     assert "checkout" in observation.detected_page_hints
     assert observation.checkout_ready is True
+
+
+def test_dummy_mode_screenshot_endpoint_returns_safe_payload() -> None:
+    _force_dummy_mode()
+    session_id = uuid4()
+
+    response = client.get(f"/sessions/{session_id}/observation/screenshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mime_type"] == "image/png"
+    assert payload["source"] == "runtime"
+    assert "image_base64" in payload

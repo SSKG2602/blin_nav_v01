@@ -32,6 +32,22 @@ CHECKOUT_BUTTON_SELECTORS = [
     'a[href*="/gp/buy/"]',
 ]
 
+ADD_TO_CART_BUTTON_SELECTORS = [
+    "#add-to-cart-button",
+    "input#add-to-cart-button",
+    'input[name="submit.add-to-cart"]',
+    '[data-action="add-to-cart"] input[type="submit"]',
+]
+
+VARIANT_OPTION_SELECTORS = [
+    "#twister .a-button-text",
+    "#twister li",
+    "#variation_size_name li",
+    "#variation_color_name li",
+    "#variation_style_name li",
+    "#twister-plus-inline-twister [role='button']",
+]
+
 MODAL_DISMISS_SELECTORS = [
     "#sp-cc-accept",
     "button#sp-cc-accept",
@@ -264,6 +280,10 @@ class SessionActionState:
     last_search_query: str | None = None
     last_search_url: str | None = None
     last_selected_product_url: str | None = None
+    last_variant_signature: str | None = None
+    last_add_to_cart_url: str | None = None
+    last_checkout_url: str | None = None
+    checkout_attempt_count: int = 0
 
 
 class SessionActionGuard:
@@ -320,6 +340,79 @@ class SessionActionGuard:
         with self._lock:
             state = self._get_state(session_id)
             state.last_selected_product_url = current_url
+
+    def should_skip_duplicate_variant_selection(
+        self,
+        session_id: UUID,
+        *,
+        signature: str | None,
+        current_url: str | None,
+    ) -> bool:
+        signature_text = _normalize_lower(signature)
+        if not signature_text:
+            return False
+        with self._lock:
+            state = self._get_state(session_id)
+            if _normalize_lower(state.last_variant_signature) != signature_text:
+                return False
+            return _normalize_lower(state.last_selected_product_url) == _normalize_lower(current_url)
+
+    def record_variant_selection(
+        self,
+        session_id: UUID,
+        *,
+        signature: str | None,
+        current_url: str | None,
+    ) -> None:
+        signature_text = _normalize_text(signature) or None
+        if signature_text is None:
+            return
+        with self._lock:
+            state = self._get_state(session_id)
+            state.last_variant_signature = signature_text
+            state.last_selected_product_url = current_url
+
+    def should_skip_duplicate_add_to_cart(self, session_id: UUID, *, current_url: str | None) -> bool:
+        url_text = _normalize_lower(current_url)
+        if not url_text:
+            return False
+        if "cart" in url_text:
+            return True
+        with self._lock:
+            state = self._get_state(session_id)
+            return _normalize_lower(state.last_add_to_cart_url) == url_text
+
+    def record_add_to_cart(self, session_id: UUID, *, current_url: str | None) -> None:
+        with self._lock:
+            state = self._get_state(session_id)
+            state.last_add_to_cart_url = current_url
+
+    def should_skip_duplicate_checkout_attempt(
+        self,
+        session_id: UUID,
+        *,
+        current_url: str | None,
+    ) -> bool:
+        url_text = _normalize_lower(current_url)
+        if not url_text:
+            return False
+        if "checkout" in url_text or "/gp/buy/" in url_text:
+            return True
+
+        with self._lock:
+            state = self._get_state(session_id)
+            if _normalize_lower(state.last_checkout_url) != url_text:
+                return False
+            return state.checkout_attempt_count >= 1
+
+    def record_checkout_attempt(self, session_id: UUID, *, current_url: str | None) -> None:
+        with self._lock:
+            state = self._get_state(session_id)
+            if _normalize_lower(state.last_checkout_url) == _normalize_lower(current_url):
+                state.checkout_attempt_count += 1
+            else:
+                state.last_checkout_url = current_url
+                state.checkout_attempt_count = 1
 
 
 action_guard = SessionActionGuard()
@@ -544,6 +637,94 @@ def extract_product_detail_evidence(page: Any) -> dict[str, Any]:
     return evidence
 
 
+def select_variant_option(
+    page: Any,
+    *,
+    session_id: UUID,
+    variant_hint: str | None = None,
+    size_hint: str | None = None,
+    color_hint: str | None = None,
+) -> tuple[bool, list[str], str | None]:
+    hints: list[str] = []
+    for value in [variant_hint, size_hint, color_hint]:
+        text = _normalize_text(value)
+        if text:
+            hints.append(text)
+
+    signature = "|".join(part.lower() for part in hints) if hints else None
+    notes: list[str] = []
+    current_url = safe_page_url(page)
+
+    if action_guard.should_skip_duplicate_variant_selection(
+        session_id,
+        signature=signature,
+        current_url=current_url,
+    ):
+        notes.append("duplicate_variant_selection_skipped")
+        return True, notes, signature
+
+    if not hints:
+        notes.append("variant_hint_missing")
+        return False, notes, signature
+
+    for selector in VARIANT_OPTION_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None:
+            continue
+        count = safe_count(locator)
+        if count <= 0:
+            continue
+
+        for index in range(min(count, 12)):
+            option = _nth(locator, index)
+            option_text = _normalize_lower(safe_inner_text(option))
+            if not option_text:
+                continue
+            if not any(hint.lower() in option_text for hint in hints):
+                continue
+            if not safe_click(option):
+                continue
+            safe_wait_for_load(page, timeout_ms=5000)
+            notes.append(f"variant_selected:{selector}:{index}")
+            action_guard.record_variant_selection(
+                session_id,
+                signature=signature,
+                current_url=safe_page_url(page),
+            )
+            return True, notes, signature
+
+    notes.append("variant_option_not_found")
+    return False, notes, signature
+
+
+def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, list[str]]:
+    notes: list[str] = []
+    current_url = safe_page_url(page)
+    if action_guard.should_skip_duplicate_add_to_cart(session_id, current_url=current_url):
+        notes.append("duplicate_add_to_cart_skipped")
+        return True, notes
+
+    for selector in ADD_TO_CART_BUTTON_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None:
+            continue
+        if safe_count(locator) <= 0:
+            continue
+        target = _first(locator)
+        visible = safe_is_visible(target)
+        if visible is False:
+            continue
+        if not safe_click(target):
+            continue
+        safe_wait_for_load(page)
+        action_guard.record_add_to_cart(session_id, current_url=safe_page_url(page))
+        notes.append(f"add_to_cart_clicked:{selector}")
+        return True, notes
+
+    notes.append("add_to_cart_button_not_found")
+    return False, notes
+
+
 def detect_checkout_entry_readiness(page: Any) -> tuple[bool | None, list[str]]:
     notes: list[str] = []
     url = _normalize_lower(safe_page_url(page))
@@ -672,6 +853,7 @@ def recover_to_stable_page(page: Any, *, preferred: str | None = None) -> dict[s
     }
 
     notes: list[str] = []
+    notes.extend(dismiss_common_interruptions(page))
     for target in target_order:
         url = target_urls[target]
         if safe_goto(page, url):

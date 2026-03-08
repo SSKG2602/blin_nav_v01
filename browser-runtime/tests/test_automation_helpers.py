@@ -11,11 +11,13 @@ if str(RUNTIME_ROOT) not in sys.path:
 
 from browser_runtime.automation.helpers import (
     action_guard,
+    add_current_product_to_cart,
     choose_best_product_candidate,
     dismiss_common_interruptions,
     extract_cart_evidence,
     extract_product_detail_evidence,
     recover_to_stable_page,
+    select_variant_option,
 )
 
 
@@ -221,3 +223,75 @@ def test_recovery_helper_returns_stable_shape() -> None:
     failure = recover_to_stable_page(failing_page, preferred="home")
     assert set(failure.keys()) == {"target", "success", "landed_url", "notes"}
     assert failure["success"] is False
+
+
+def test_select_variant_option_matches_hint_and_records_guard() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    page = FakePage(
+        url="https://www.amazon.in/dp/B012345678",
+        selectors={
+            "#twister .a-button-text": [
+                {"text": "1kg", "visible": True},
+                {"text": "3kg", "visible": True},
+            ],
+        },
+    )
+
+    selected, notes, signature = select_variant_option(
+        page,
+        session_id=session_id,
+        variant_hint="3kg",
+    )
+    assert selected is True
+    assert signature == "3kg"
+    assert any("variant_selected" in note for note in notes)
+
+    selected_again, notes_again, _ = select_variant_option(
+        page,
+        session_id=session_id,
+        variant_hint="3kg",
+    )
+    assert selected_again is True
+    assert "duplicate_variant_selection_skipped" in notes_again
+
+
+def test_add_to_cart_duplicate_guard_skips_repeat() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    page = FakePage(
+        url="https://www.amazon.in/dp/B012345678",
+        selectors={
+            "#add-to-cart-button": [{"visible": True}],
+        },
+    )
+
+    added, notes = add_current_product_to_cart(page, session_id=session_id)
+    assert added is True
+    assert any("add_to_cart_clicked" in note for note in notes)
+
+    added_again, notes_again = add_current_product_to_cart(page, session_id=session_id)
+    assert added_again is True
+    assert "duplicate_add_to_cart_skipped" in notes_again
+
+
+def test_duplicate_checkout_guard_skips_repeat_attempts() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    current_url = "https://www.amazon.in/gp/cart/view.html"
+
+    assert (
+        action_guard.should_skip_duplicate_checkout_attempt(
+            session_id,
+            current_url=current_url,
+        )
+        is False
+    )
+    action_guard.record_checkout_attempt(session_id, current_url=current_url)
+    assert (
+        action_guard.should_skip_duplicate_checkout_attempt(
+            session_id,
+            current_url=current_url,
+        )
+        is True
+    )

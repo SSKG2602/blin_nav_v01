@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
     PORT: int = 8200
     LOG_LEVEL: str = "INFO"
+    ALLOW_FINAL_PURCHASE_AUTOMATION: bool = False
 
 
 settings = Settings()
-

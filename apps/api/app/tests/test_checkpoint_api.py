@@ -18,6 +18,7 @@ from app.schemas.control_state import (
     SensitiveCheckpointKind,
     SensitiveCheckpointRequest,
 )
+from app.schemas.purchase_support import FinalPurchaseConfirmation
 
 
 @pytest.fixture
@@ -101,9 +102,9 @@ def test_resolve_checkpoint_approve(client: TestClient, testing_session_local) -
 
     context = client.get(f"/api/sessions/{session_id}/context")
     context_payload = context.json()
-    assert context_payload["latest_final_purchase_confirmation"] is not None
-    assert context_payload["latest_final_purchase_confirmation"]["required"] is True
-    assert context_payload["latest_final_purchase_confirmation"]["confirmed"] is True
+    assert context_payload["latest_sensitive_checkpoint"] is not None
+    assert context_payload["latest_sensitive_checkpoint"]["status"] == CheckpointStatus.APPROVED.value
+    assert context_payload["latest_final_purchase_confirmation"] is None
 
 
 def test_resolve_checkpoint_reject(client: TestClient, testing_session_local) -> None:
@@ -120,9 +121,9 @@ def test_resolve_checkpoint_reject(client: TestClient, testing_session_local) ->
 
     context = client.get(f"/api/sessions/{session_id}/context")
     context_payload = context.json()
-    assert context_payload["latest_final_purchase_confirmation"] is not None
-    assert context_payload["latest_final_purchase_confirmation"]["required"] is True
-    assert context_payload["latest_final_purchase_confirmation"]["confirmed"] is False
+    assert context_payload["latest_sensitive_checkpoint"] is not None
+    assert context_payload["latest_sensitive_checkpoint"]["status"] == CheckpointStatus.REJECTED.value
+    assert context_payload["latest_final_purchase_confirmation"] is None
 
 
 def test_checkpoint_routes_missing_session_return_404(client: TestClient) -> None:
@@ -153,3 +154,35 @@ def test_checkpoint_routes_return_404_when_no_checkpoint(client: TestClient) -> 
     assert get_response.json()["detail"] == "Checkpoint not found"
     assert post_response.status_code == 404
     assert post_response.json()["detail"] == "Checkpoint not found"
+
+
+def test_final_confirmation_routes_round_trip(client: TestClient, testing_session_local) -> None:
+    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    session_id = created["session_id"]
+    with testing_session_local() as db:
+        update_session_context(
+            db,
+            UUID(session_id),
+            latest_final_purchase_confirmation=FinalPurchaseConfirmation(
+                required=True,
+                confirmed=False,
+                prompt_to_user="Please confirm final purchase.",
+                confirmation_phrase_expected="confirm purchase",
+                notes="seeded final confirmation",
+            ),
+        )
+
+    get_response = client.get(f"/api/sessions/{session_id}/final-confirmation")
+    assert get_response.status_code == 200
+    assert get_response.json()["required"] is True
+    assert get_response.json()["confirmed"] is False
+
+    resolve_response = client.post(
+        f"/api/sessions/{session_id}/final-confirmation/resolve",
+        json={"approved": True, "resolution_notes": "Confirmed in test."},
+    )
+    assert resolve_response.status_code == 200
+    payload = resolve_response.json()
+    assert payload["required"] is True
+    assert payload["confirmed"] is True
+    assert payload["notes"] == "Confirmed in test."

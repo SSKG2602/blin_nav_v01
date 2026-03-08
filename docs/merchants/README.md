@@ -1,13 +1,17 @@
 # Merchant Notes
 
-Pinned demo target:
-- `amazon.in`
+## Active merchant scope
 
-Backup logged-in contingencies only:
-- Flipkart
-- Meesho
+- primary supported demo target: `amazon.in`
+- bounded backup contingencies: `flipkart.com`, `meesho.com`
 
-Current implementation is demo-focused and bounded:
-- merchant behavior is mediated through deterministic backend orchestration + browser-runtime tools
-- support is not a generalized adapter marketplace or full autonomous cross-merchant engine
-- domain trust checks and checkpoint-gated flows are prioritized over broad merchant feature coverage
+## Implementation truth
+
+Merchant handling in this repo is driven by:
+
+- deterministic backend orchestration
+- browser-runtime page interaction and observation
+- trust verification before important progression
+- checkpoint-gated sensitive actions
+
+This repo does not present merchant support as a generalized adapter marketplace or universal shopping engine.

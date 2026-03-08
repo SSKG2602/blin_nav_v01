@@ -1,5 +1,12 @@
 # Prompt Contracts
 
-Placeholder for prompt interface contracts and structured input-output notes.
+Prompt logic and Gemini wiring are already active in the backend implementation.
 
-No prompt logic or model wiring exists yet.
+Current canonical locations:
+
+- `apps/api/app/llm/client.py`
+- `apps/api/app/llm/gemini_service.py`
+- `apps/api/app/api/routes/live.py`
+- `apps/api/app/api/routes/agent.py`
+
+This package directory is reserved for future extraction of stable prompt contracts if cross-surface reuse becomes necessary.

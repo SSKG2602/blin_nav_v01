@@ -1,11 +1,13 @@
 # Deploy Scripts
 
-Deployment scaffolding currently lives under `infra/cloudrun`.
+The active deployment assets in this repo currently live under `infra/cloudrun`.
 
-Use this folder for future repo-level deployment helpers only after the application runtime is real enough to justify them. For now:
+Authoritative deployment guidance is in [DEPLOYMENT.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/DEPLOYMENT.md).
 
-- `infra/cloudrun/service.yaml` is the Cloud Run service template
-- `infra/cloudrun/deploy.sh` is the deployment command wrapper
-- `infra/cloudrun/env.sample.yaml` is the env var placeholder file
+Current in-repo deployment files:
 
-Do not add feature-specific deployment logic here during foundation setup.
+- `infra/cloudrun/service.yaml`
+- `infra/cloudrun/deploy.sh`
+- `infra/cloudrun/env.sample.yaml`
+
+Use `scripts/deploy` only for additional wrapper scripts that reflect the real deployment flow and reduce operator overhead without duplicating or obscuring the existing Cloud Run path.

@@ -1,48 +1,29 @@
-# API Docs
+# API Notes
 
-Current backend surface includes deterministic orchestration endpoints, live-session transport, and runtime observation bridges.
+The authoritative repo-level API summary is [API_OVERVIEW.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/API_OVERVIEW.md).
 
-## Health Endpoints
+This folder-level note exists to keep the `docs/api` path available for more detailed route and payload notes if they need to be expanded later.
 
-- `GET /health`
-- `GET /health/live`
-- `GET /health/ready`
+## Current API shape
 
-`/health/ready` includes DB/Redis checks and aggregate status (`ok`, `degraded`, `down`).
+BlindNav currently exposes route groups for:
 
-## Session + Logs API
+- health
+- lightweight auth
+- session lifecycle and history
+- agent-step execution
+- live websocket sessions
+- checkpoint and final-confirmation resolution
+- runtime observation and screenshot inspection
+- cart adjustment and latest-order support
 
-- `POST /api/sessions`
-- `GET /api/sessions/{session_id}`
-- `GET /api/sessions`
-- `POST /api/sessions/{session_id}/logs`
-- `GET /api/sessions/{session_id}/logs`
+## Contract location
 
-## Deterministic Agent-Step API
+Implementation contracts live in:
 
-- `POST /api/sessions/{session_id}/agent/step`
+- `apps/api/app/schemas`
+- `apps/web/lib/types.ts`
 
-This executes one orchestrated state-machine step, emits agent commands for the tools layer, updates context evidence, and returns the new state + spoken summary.
+## Scope rule
 
-## Context / Consent / Runtime APIs
-
-- `GET /api/sessions/{session_id}/context`
-- `GET /api/sessions/{session_id}/checkpoint`
-- `POST /api/sessions/{session_id}/checkpoint/resolve`
-- `GET /api/sessions/{session_id}/final-confirmation`
-- `POST /api/sessions/{session_id}/final-confirmation/resolve`
-- `GET /api/sessions/{session_id}/runtime/observation`
-- `GET /api/sessions/{session_id}/runtime/screenshot`
-
-## Live Session API
-
-- `POST /api/live/sessions`
-- `WS /api/live/sessions/{session_id}/stream`
-
-Live websocket flow supports start/user_text/audio/interrupt/cancel and consent resolution events, and emits transcription/intent/agent-step/spoken-output/control-state events for the operator shell.
-
-## Contract Notes
-
-- Session, context, control-state, purchase-support, trust, review, and multimodal schemas are active and used by route handlers and orchestration layers.
-- Locale is normalized (`en-IN`, `hi-IN`) at live ingress and propagated through spoken/transcription payloads.
-- Claims here are implementation-grounded; this doc intentionally avoids speculative future endpoint claims.
+This folder should document only active endpoints and payloads that exist in the runnable codebase.

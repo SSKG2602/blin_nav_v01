@@ -1,99 +1,119 @@
 # BlindNav (`Luminar`)
 
-`blin_nav_v01` is the runnable BlindNav implementation repository for the Gemini Live Agent challenge (`UI Navigator` track). The wake name is `Luminar`.
+BlindNav is a voice-first accessibility shopping agent for blind users. It listens to a shopping request, interprets intent, grounds itself on the live merchant page, navigates through a deterministic backend state machine, verifies what it is doing, pauses at sensitive checkpoints, requires final verbal confirmation before purchase, and produces a user-verifiable session record.
 
-This repository is intentionally separate from `../Gemini_Hack`. The sibling `Gemini_Hack` folder is reference-only planning/architecture material and is not part of the runnable codebase.
+This repository is the runnable implementation. The sibling `../Gemini_Hack` folder is reference material for intended scope, workflow, and architecture; it is not the executable codebase.
 
-## Current Implementation Snapshot
+## Why BlindNav exists
 
-Implemented now:
-- FastAPI backend with deterministic orchestrator + state-machine transitions
-- persisted session/log/context layers (PostgreSQL-backed)
-- API surface for session lifecycle, agent-step execution, live websocket flow, checkpoint/final-confirmation resolution, and runtime observation/screenshot reads
-- browser-runtime service wired through backend tools/executor boundaries
-- Gemini-backed interpretation/assessment path with deterministic fallbacks
-- derived trust/review/multimodal/control-state/final-confirmation/post-purchase outputs in session context
-- Next.js operator shell wired to live/session APIs with consent checkpoints, final confirmation handling, runtime mirror, and event stream panels
-- selective prop-driven frontend presentation integration completed for the operator shell (`VoiceMicButton`, `VoiceTranscript`, `AgentSpeechBubble`, `NavigationStatusPanel`)
-- Docker Compose wiring for frontend + backend + browser-runtime + Redis + Postgres
+Blind users should not have to trust opaque automation when shopping online. BlindNav is built to keep the agent explainable and constrained:
 
-Still intentionally limited:
-- no claim of fully autonomous production-grade checkout placement
-- merchant coverage is demo-focused and bounded, not generalized internet autonomy
-- UI is operator/demo-oriented, not production branding-complete
+- voice-first interaction is the primary surface
+- browser-grounded evidence is required before important actions
+- vision supports page understanding and verification, not blind clicking
+- sensitive actions are gated by explicit consent checkpoints
+- final order placement requires explicit verbal confirmation
+- low-confidence situations halt or route through recovery instead of guessing
 
-## Pinned Ports
+## What is implemented here
 
-| Surface | Port | Notes |
-| --- | --- | --- |
-| Frontend | `3100` | Next.js operator shell |
-| Backend API | `8100` | FastAPI service |
-| Docs / Devtools | `4100` | Reserved for supporting tooling |
+The current branch is implementation-complete for the bounded non-future hackathon scope:
 
-Port `3000` is intentionally unused.
+- deterministic backend orchestration and state-machine control
+- browser-runtime execution and page observation via Playwright
+- live session flow with websocket events, speech integration, interruption handling, and locale-aware interaction
+- intent parsing, clarification, trust checks, grounded navigation, candidate selection, product verification, variant precision checks, review risk analysis, and spoken micro-summaries
+- consent checkpoints for sensitive actions, explicit final purchase confirmation, low-confidence halt, desynchronization recovery, and session self-diagnosis
+- persistent session history, lightweight auth, agent logs, session closure artifacts, cart context, latest-order support, and post-purchase summary data
+- Next.js operator shell for live operation, runtime inspection, checkpoints, final confirmation, cart review, session history, and audit visibility
 
-## Demo Scope Boundaries
+## Bounded demo scope
 
-- Primary merchant target: `amazon.in`
-- Backup logged-in contingencies: `flipkart.com`, `meesho.com`
-- Current implementation is deterministic and checkpoint-gated; it is not an unconstrained autonomous shopper.
+BlindNav is intentionally scoped for a bounded hackathon demo:
 
-## Stack
+- primary merchant target: `amazon.in`
+- backup contingencies: `flipkart.com`, `meesho.com`
+- operator shell: demo and debugging surface, not a consumer-polished storefront
+- no claim of unconstrained multi-merchant autonomy
+- no claim that future-scope items are implemented beyond what the codebase actually contains
 
-- Frontend: Next.js 15, TypeScript, Tailwind CSS
-- Backend: Python 3.11+, FastAPI, Pydantic v2
-- Data plane: Redis + PostgreSQL
-- Browser runtime: Playwright Python service
-- AI path: Google GenAI SDK + Gemini Live-compatible flow
-- Infra: Docker Compose, Cloud Run deployment assets
+## Architecture principles
 
-## Local Startup
+- Backend orchestration is the behavioral source of truth.
+- The browser runtime is the execution and observation boundary.
+- Frontend surfaces state and user actions; it does not own business logic.
+- Gemini supports bounded interpretation, summarization, and multimodal assistance.
+- Page evidence, runtime observation, and persisted session context remain the source of truth for execution, consent, and verification.
 
-Install dependencies:
+See [ARCHITECTURE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/ARCHITECTURE.md) for the full breakdown.
+
+## Repository layout
+
+- `apps/api` - FastAPI backend, deterministic orchestration, persistence, live transport, auth, session control, and verification layers
+- `apps/web` - Next.js operator shell for live demo operation and audit visibility
+- `browser-runtime` - Playwright-based runtime for navigation, action execution, and observation capture
+- `docs` - supporting repo-local notes aligned to the current implementation
+- `infra` - Dockerfiles and Cloud Run deployment assets
+- `packages` - reserved contract/package boundaries documented for future extraction, not active publishable packages today
+- `scripts` - local dev, test, and deploy helpers
+
+## Running locally
+
+Use the practical run guide in [RUNNING_LOCALLY.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/RUNNING_LOCALLY.md).
+
+Common local commands:
 
 ```bash
 make install
-```
-
-Run frontend + backend + browser-runtime:
-
-```bash
 make dev
-```
-
-Run individually:
-
-```bash
-make dev-backend
-make dev-runtime
-make dev-frontend
-```
-
-Tests/checks:
-
-```bash
 make test-backend
 make test-runtime
 ./scripts/test/run-frontend-checks.sh
 ```
 
-Container boot:
+Pinned local ports:
 
-```bash
-docker compose up --build
-```
+- frontend: `3100`
+- backend API: `8100`
+- browser runtime: `8200`
+- docs/devtools reserve: `4100`
 
-## Branch Discipline
+## Testing
 
-- Use hyphenated branch names only
-- Do not use `#` in branch names
-- Keep changes bounded and architecture-safe
-- Respect ownership boundaries:
-  - `sskg-78`: backend, infra, browser runtime, architecture-critical paths
-  - `msms-64`: bounded frontend/docs/fixtures support paths
+Testing guidance lives in [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md).
 
-## Repository Boundary
+Current repo test surfaces include:
 
-- Edit only files inside `./blin_nav_v01`
-- Treat `../Gemini_Hack` as read-only architecture/scope reference
-- Keep implementation claims in docs aligned to actual runnable state
+- backend pytest suite under `apps/api/app/tests`
+- browser-runtime pytest suite under `browser-runtime/tests`
+- frontend typecheck and production build checks under `apps/web`
+
+## Deployment
+
+Deployment notes live in [DEPLOYMENT.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/DEPLOYMENT.md).
+
+The repo includes:
+
+- Docker Compose for local multi-service execution
+- Dockerfiles for backend, frontend, and browser runtime
+- Cloud Run deployment assets for the backend under `infra/cloudrun`
+
+## Documentation map
+
+- [ARCHITECTURE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/ARCHITECTURE.md)
+- [API_OVERVIEW.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/API_OVERVIEW.md)
+- [RUNNING_LOCALLY.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/RUNNING_LOCALLY.md)
+- [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md)
+- [DEPLOYMENT.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/DEPLOYMENT.md)
+- [SECURITY.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/SECURITY.md)
+- [TROUBLESHOOTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TROUBLESHOOTING.md)
+- [HACKATHON_SCOPE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/HACKATHON_SCOPE.md)
+- [CONTRIBUTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/CONTRIBUTING.md)
+
+## Contributor acknowledgment
+
+BlindNav in this repo reflects architecture-critical backend, runtime, and integration work led by **Shreyas Gowda S**, with bounded frontend, documentation, and support integration contributions from **Mimansha Mishra**.
+
+## Scope honesty
+
+This repository documents only what is implemented in the current branch. Future scope described in the Gemini_Hack grounding material is not claimed as complete unless the runnable code in this repo supports it.

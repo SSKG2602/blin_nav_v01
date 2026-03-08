@@ -1,9 +1,12 @@
-# Prompt Contracts
+# Prompt Notes
 
-This folder tracks explicit prompt-interface contracts as they are stabilized.
+BlindNav already uses Gemini-backed interpretation, summarization, and multimodal support in the backend. Prompt ownership is currently implementation-local rather than published as a standalone contract package.
 
-Current status:
-- backend LLM integrations are active in `apps/api/app/llm` and agent derivation layers
-- prompt structures are currently implementation-local and not yet fully externalized as standalone contract docs
+Relevant implementation areas:
 
-When prompt interfaces are formalized for cross-surface reuse, this folder should hold the canonical contract documentation.
+- `apps/api/app/llm/client.py`
+- `apps/api/app/llm/gemini_service.py`
+- `apps/api/app/api/routes/agent.py`
+- `apps/api/app/api/routes/live.py`
+
+Use this folder only for prompt-interface documentation that is stable enough to matter outside the current implementation.

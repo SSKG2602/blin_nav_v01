@@ -1,16 +1,11 @@
-# Playwright Service Placeholder
+# Playwright Service Notes
 
-This directory reserves the browser automation runtime boundary for BlindNav.
+The active browser runtime implementation for BlindNav lives in the `browser_runtime` package at the root of `browser-runtime/`.
 
-Current status:
-- no service implementation
-- no selectors
-- no page models
-- no merchant logic
+This `playwright_service` folder is not the main runtime entrypoint today. It remains a useful boundary for sidecar-specific notes or requirements if the runtime surface is split further later.
 
-Purpose of the placeholder:
-- make the runtime boundary explicit
-- pin Playwright Python as the intended automation path
-- keep future browser code separate from the FastAPI app
+Current implementation truth:
 
-Primary merchant target remains `amazon.in`. Flipkart and Meesho are backup contingencies only and are not implemented here.
+- Playwright is the browser automation foundation for the repo
+- the runnable service is started from `browser_runtime.main`
+- merchant interaction, observation, and action helpers live under `browser_runtime/automation`, `browser_runtime/observation`, and `browser_runtime/routes`

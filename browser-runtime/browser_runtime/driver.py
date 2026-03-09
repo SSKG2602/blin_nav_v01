@@ -204,15 +204,21 @@ class BrowserSessionManager:
             playwright: Playwright | None = None
             try:
                 playwright = sync_playwright().start()
+                logger.info("Launching Chromium browser...")
                 browser = playwright.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--single-process",
+                        "--no-zygote",
+                    ],
                 )
+                logger.info("Chromium launched successfully.")
             except Exception as exc:
-                logger.warning(
-                    "Playwright launch failed; running in no-op mode: %s",
-                    exc,
-                )
+                logger.error("Chromium launch failed: %s", exc, exc_info=True)
                 if playwright is not None:
                     try:
                         playwright.stop()

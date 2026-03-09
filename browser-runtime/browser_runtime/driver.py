@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 from typing import Any, Dict
@@ -184,6 +185,7 @@ class DummyPage:
 class BrowserSessionManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._executor = ThreadPoolExecutor(max_workers=1)
         self._playwright_started = False
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
@@ -246,7 +248,7 @@ class BrowserSessionManager:
         return page
 
     def get_page(self, session_id: UUID) -> Page | DummyPage:
-        with self._lock:
+        def _run() -> Page | DummyPage:
             self._ensure_browser_started()
 
             if session_id in self._pages:
@@ -254,10 +256,15 @@ class BrowserSessionManager:
 
             return self._create_page_for_session(session_id)
 
+        return self._executor.submit(_run).result()
+
     def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
-        with self._lock:
+        def _run() -> dict[str, Any]:
             self._ensure_browser_started()
-            page = self.get_page(session_id)
+            if session_id in self._pages:
+                page = self._pages[session_id]
+            else:
+                page = self._create_page_for_session(session_id)
             context = self._contexts.get(session_id)
             current_url = getattr(page, "url", None)
             current_url_text = current_url if isinstance(current_url, str) and current_url else None
@@ -301,10 +308,13 @@ class BrowserSessionManager:
                 "notes": None if amazon_cookies else "No amazon.in cookies detected in the runtime session.",
             }
 
+        return self._executor.submit(_run).result()
+
     def set_session_cookies(self, session_id: UUID, cookies_list: list[Any]) -> None:
-        with self._lock:
+        def _run() -> None:
             self._ensure_browser_started()
-            self.get_page(session_id)
+            if session_id not in self._pages:
+                self._create_page_for_session(session_id)
             context = self._contexts.get(session_id)
             if context is None:
                 raise RuntimeError("No Playwright browser context is available for this session.")
@@ -319,8 +329,10 @@ class BrowserSessionManager:
 
             add_cookies_fn(normalized_cookies)
 
+        self._executor.submit(_run).result()
+
     def close_session(self, session_id: UUID) -> None:
-        with self._lock:
+        def _run() -> None:
             context = self._contexts.pop(session_id, None)
             self._pages.pop(session_id, None)
 
@@ -330,8 +342,10 @@ class BrowserSessionManager:
                 except Exception:
                     logger.debug("Failed to close context for session %s", session_id, exc_info=True)
 
+        self._executor.submit(_run).result()
+
     def shutdown(self) -> None:
-        with self._lock:
+        def _run() -> None:
             for context in self._contexts.values():
                 try:
                     context.close()
@@ -355,6 +369,11 @@ class BrowserSessionManager:
                 self._playwright = None
 
             self._playwright_started = False
+
+        try:
+            self._executor.submit(_run).result()
+        finally:
+            self._executor.shutdown(wait=True)
 
 
 browser_session_manager = BrowserSessionManager()

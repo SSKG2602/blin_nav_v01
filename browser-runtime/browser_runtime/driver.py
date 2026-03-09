@@ -14,6 +14,63 @@ except ImportError:  # Playwright not installed
 logger = logging.getLogger(__name__)
 
 
+def _normalize_same_site(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip().lower()
+    if normalized in {"lax"}:
+        return "Lax"
+    if normalized in {"strict"}:
+        return "Strict"
+    if normalized in {"none", "no_restriction", "no restriction"}:
+        return "None"
+    return None
+
+
+def _normalize_cookie_payload(cookie: Any) -> dict[str, Any]:
+    if not isinstance(cookie, dict):
+        raise ValueError("Each cookie entry must be an object.")
+
+    name = cookie.get("name")
+    value = cookie.get("value")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Each cookie must include a non-empty name.")
+    if not isinstance(value, str):
+        raise ValueError(f'Cookie "{name}" must include a string value.')
+
+    normalized: dict[str, Any] = {
+        "name": name,
+        "value": value,
+    }
+
+    url = cookie.get("url")
+    domain = cookie.get("domain")
+    path = cookie.get("path")
+    if isinstance(url, str) and url.strip():
+        normalized["url"] = url.strip()
+    elif isinstance(domain, str) and domain.strip():
+        normalized["domain"] = domain.strip()
+        normalized["path"] = path.strip() if isinstance(path, str) and path.strip() else "/"
+    else:
+        raise ValueError(f'Cookie "{name}" must include a valid url or domain.')
+
+    expires = cookie.get("expires", cookie.get("expirationDate"))
+    if isinstance(expires, (int, float)) and expires > 0:
+        normalized["expires"] = float(expires)
+
+    if isinstance(cookie.get("secure"), bool):
+        normalized["secure"] = cookie["secure"]
+    if isinstance(cookie.get("httpOnly"), bool):
+        normalized["httpOnly"] = cookie["httpOnly"]
+
+    same_site = _normalize_same_site(cookie.get("sameSite"))
+    if same_site is not None:
+        normalized["sameSite"] = same_site
+
+    return normalized
+
+
 class DummyPage:
     def __init__(self, session_id: UUID):
         self._session_id = session_id
@@ -237,6 +294,24 @@ class BrowserSessionManager:
                 "current_url": current_url_text,
                 "notes": None if amazon_cookies else "No amazon.in cookies detected in the runtime session.",
             }
+
+    def set_session_cookies(self, session_id: UUID, cookies_list: list[Any]) -> None:
+        with self._lock:
+            self._ensure_browser_started()
+            self.get_page(session_id)
+            context = self._contexts.get(session_id)
+            if context is None:
+                raise RuntimeError("No Playwright browser context is available for this session.")
+
+            normalized_cookies = [_normalize_cookie_payload(cookie) for cookie in cookies_list]
+            if not normalized_cookies:
+                raise ValueError("No cookies were provided.")
+
+            add_cookies_fn = getattr(context, "add_cookies", None)
+            if not callable(add_cookies_fn):
+                raise RuntimeError("Browser context does not support cookie injection.")
+
+            add_cookies_fn(normalized_cookies)
 
     def close_session(self, session_id: UUID) -> None:
         with self._lock:

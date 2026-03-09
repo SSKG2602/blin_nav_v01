@@ -123,3 +123,6 @@ class BrowserRuntimeClient(Protocol):
 
     def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
         ...
+
+    def set_amazon_cookies(self, *, session_id: UUID, cookies: str) -> None:
+        ...

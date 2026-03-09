@@ -221,20 +221,51 @@ export function DemoShell() {
                 disabled={!demo.sessionId || demo.amazonAuthBusy || demo.amazonConnected}
               >
                 {demo.amazonAuthBusy
-                  ? "Connecting Amazon..."
+                  ? "Saving Cookies..."
                   : demo.amazonConnected
                     ? "Amazon Connected ✓"
                     : "Connect Amazon.in"}
               </button>
-              <p className="text-sm text-slate-600">
-                {demo.amazonConnected
-                  ? "Amazon Connected ✓"
-                  : demo.amazonAuthNote ??
-                    (demo.sessionId
-                      ? "Bind Amazon login to the active BlindNav session."
-                      : "Start a live session to bind Amazon login.")}
-              </p>
             </div>
+            {demo.amazonCookiePanelOpen && !demo.amazonConnected ? (
+              <div className="mt-3 space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm text-amber-950">
+                  Export cookies from your logged-in Amazon.in browser tab using the Cookie-Editor Chrome extension, then paste the JSON here.
+                </p>
+                <textarea
+                  value={demo.amazonCookieInput}
+                  onChange={(event) => demo.setAmazonCookieInput(event.target.value)}
+                  placeholder='[{"domain":".amazon.in","name":"session-id","value":"..."}]'
+                  rows={8}
+                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 font-mono text-xs text-slate-900"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300"
+                    onClick={demo.saveAmazonCookies}
+                    disabled={!demo.sessionId || demo.amazonAuthBusy || !demo.amazonCookieInput.trim()}
+                  >
+                    {demo.amazonAuthBusy ? "Saving..." : "Save Cookies"}
+                  </button>
+                  <p className="text-sm text-slate-600">
+                    Cookies are loaded only into the active BlindNav browser-runtime session.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <p
+              className={`mt-3 text-sm ${
+                demo.amazonConnected ? "font-medium text-emerald-700" : "text-slate-600"
+              }`}
+            >
+              {demo.amazonConnected
+                ? "Amazon Connected ✓"
+                : demo.amazonAuthNote ??
+                  (demo.sessionId
+                    ? "Bind Amazon login to the active BlindNav session."
+                    : "Start a live session to bind Amazon login.")}
+            </p>
           </div>
         </section>
 

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  buildAmazonLoginUrl,
   cancelLatestOrder,
   buildLiveWebSocketUrl,
   createLiveSession,
@@ -44,6 +43,8 @@ import {
 
 const SUPPORTED_LOCALES = ["en-IN", "hi-IN"];
 const VOICE_RECOGNITION_UNAVAILABLE_MESSAGE = "Voice recognition requires Chrome or Edge browser";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8100";
+const AUTH_STORAGE_KEY = "blindnav_auth_token";
 
 function safeLocale(input: string): string {
   if (SUPPORTED_LOCALES.includes(input)) {
@@ -104,9 +105,9 @@ export function useDemoShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
   const screenshotPollRef = useRef<number | null>(null);
-  const amazonAuthPollRef = useRef<number | null>(null);
-  const amazonPopupRef = useRef<Window | null>(null);
   const wakeRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
+  const wakePhraseEnabledRef = useRef(false);
+  const wakeActiveRef = useRef(false);
   const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const pendingVoiceCaptureRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -146,9 +147,19 @@ export function useDemoShell() {
   const [audioCaptureSupported, setAudioCaptureSupported] = useState(false);
   const [voiceSupportMessage, setVoiceSupportMessage] = useState<string | null>(null);
   const [amazonConnected, setAmazonConnected] = useState(false);
+  const [amazonCookiePanelOpen, setAmazonCookiePanelOpen] = useState(false);
+  const [amazonCookieInput, setAmazonCookieInput] = useState("");
   const [amazonAuthBusy, setAmazonAuthBusy] = useState(false);
   const [amazonAuthNote, setAmazonAuthNote] = useState<string | null>(null);
   const [orderCancelBusy, setOrderCancelBusy] = useState(false);
+
+  useEffect(() => {
+    wakePhraseEnabledRef.current = wakePhraseEnabled;
+  }, [wakePhraseEnabled]);
+
+  useEffect(() => {
+    wakeActiveRef.current = wakeActive;
+  }, [wakeActive]);
 
   const appendTranscript = (item: TranscriptItem) => {
     setTranscript((prev) => [item, ...prev].slice(0, 120));
@@ -251,13 +262,6 @@ export function useDemoShell() {
     }
   };
 
-  const stopAmazonAuthPolling = () => {
-    if (amazonAuthPollRef.current !== null) {
-      window.clearInterval(amazonAuthPollRef.current);
-      amazonAuthPollRef.current = null;
-    }
-  };
-
   const startPolling = (id: string) => {
     stopPolling();
     pollRef.current = window.setInterval(() => {
@@ -307,6 +311,7 @@ export function useDemoShell() {
   };
 
   const stopWakePhraseListener = () => {
+    wakePhraseEnabledRef.current = false;
     setWakePhraseEnabled(false);
     if (wakeRecognitionRef.current) {
       wakeRecognitionRef.current.stop();
@@ -355,6 +360,7 @@ export function useDemoShell() {
 
     const recognition = new SpeechRecognitionCtor();
     wakeRecognitionRef.current = recognition;
+    wakePhraseEnabledRef.current = true;
     setWakePhraseEnabled(true);
     recognition.lang = safeLocale(locale);
     recognition.continuous = true;
@@ -373,6 +379,7 @@ export function useDemoShell() {
           continue;
         }
 
+        wakeActiveRef.current = true;
         setWakeActive(true);
         appendTranscript(makeTranscript("system", 'Wake phrase "Luminar" detected. Listening for commands.'));
         setBrowserActivityStatus('Wake phrase detected. Listening for voice commands.');
@@ -395,6 +402,12 @@ export function useDemoShell() {
         wakeRecognitionRef.current = null;
       }
       setWakePhraseEnabled(false);
+      if (!wakeActiveRef.current && wakePhraseEnabledRef.current) {
+        wakeRecognitionRef.current = recognition;
+        recognition.start();
+        wakePhraseEnabledRef.current = true;
+        setWakePhraseEnabled(true);
+      }
     };
     recognition.start();
     return true;
@@ -404,21 +417,20 @@ export function useDemoShell() {
     stopListening();
     stopWakePhraseListener();
     stopSpeechPlayback();
-    stopAmazonAuthPolling();
     stopScreenshotPolling();
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-    if (amazonPopupRef.current && !amazonPopupRef.current.closed) {
-      amazonPopupRef.current.close();
-      amazonPopupRef.current = null;
-    }
     setConnected(false);
     setConnecting(false);
+    wakeActiveRef.current = false;
     setWakeActive(false);
+    wakePhraseEnabledRef.current = false;
     setWakePhraseEnabled(false);
     setAmazonConnected(false);
+    setAmazonCookiePanelOpen(false);
+    setAmazonCookieInput("");
     setAmazonAuthBusy(false);
     setAmazonAuthNote(null);
     setBrowserActivityStatus("Waiting for a live browser session.");
@@ -492,7 +504,9 @@ export function useDemoShell() {
       utterance.onerror = () => setSpeaking(false);
       setSpeaking(true);
       setBrowserActivityStatus("Speaking...");
-      window.speechSynthesis.speak(utterance);
+      requestAnimationFrame(() => {
+        window.speechSynthesis.speak(utterance);
+      });
     }
   };
 
@@ -920,6 +934,7 @@ export function useDemoShell() {
     setSpeechSupported(true);
     setError(null);
     setVoiceSupportMessage(null);
+    wakeActiveRef.current = false;
     setWakeActive(false);
     pendingVoiceCaptureRef.current = false;
 
@@ -1131,49 +1146,75 @@ export function useDemoShell() {
       setError("Start a live session before connecting Amazon.in.");
       return;
     }
-    setAmazonAuthBusy(true);
     setError(null);
-    setAmazonAuthNote("Waiting for Amazon login and runtime cookie capture...");
-    setBrowserActivityStatus("Opening the Amazon.in login popup.");
-    const popup = window.open(
-      buildAmazonLoginUrl(sessionId),
-      "blindnav-amazon-login",
-      "popup=yes,width=540,height=720"
+    setAmazonCookiePanelOpen(true);
+    setAmazonAuthNote(
+      "Paste the exported Amazon.in cookies JSON for the active BlindNav session."
     );
-    if (!popup) {
-      setAmazonAuthBusy(false);
-      setError("Popup blocked. Allow popups for BlindNav to continue.");
+    setBrowserActivityStatus("Waiting for pasted Amazon.in cookies.");
+  };
+
+  const saveAmazonCookies = async () => {
+    if (!sessionId) {
+      setError("Start a live session before saving Amazon.in cookies.");
       return;
     }
-    amazonPopupRef.current = popup;
-    appendTranscript(makeTranscript("system", "Opened Amazon.in login popup."));
-    await refreshAmazonConnectionStatus(sessionId, true);
-    stopAmazonAuthPolling();
-    amazonAuthPollRef.current = window.setInterval(() => {
-      void (async () => {
-        if (!sessionId) {
-          return;
-        }
-        const status = await refreshAmazonConnectionStatus(sessionId, true);
-        if (status?.connected) {
-          setAmazonAuthBusy(false);
-          setBrowserActivityStatus("Amazon.in runtime cookies detected.");
-          appendTranscript(makeTranscript("system", "Amazon Connected ✓"));
-          stopAmazonAuthPolling();
-          if (amazonPopupRef.current && !amazonPopupRef.current.closed) {
-            amazonPopupRef.current.close();
-          }
-          amazonPopupRef.current = null;
-          return;
-        }
-        if (amazonPopupRef.current?.closed) {
-          setAmazonAuthBusy(false);
-          setAmazonAuthNote("Amazon popup closed before runtime cookies were captured.");
-          stopAmazonAuthPolling();
-          amazonPopupRef.current = null;
-        }
-      })();
-    }, 2000);
+
+    const cookies = amazonCookieInput.trim();
+    if (!cookies) {
+      const message = "Paste exported Amazon.in cookies JSON before saving.";
+      setAmazonAuthNote(message);
+      setError(message);
+      return;
+    }
+
+    setAmazonAuthBusy(true);
+    setError(null);
+    setAmazonAuthNote("Saving Amazon.in cookies into the BlindNav runtime...");
+    setBrowserActivityStatus("Loading pasted Amazon.in cookies into the live browser session.");
+
+    try {
+      const authToken =
+        typeof window === "undefined" ? null : window.localStorage.getItem(AUTH_STORAGE_KEY);
+      const response = await fetch(`${API_BASE_URL}/api/auth/amazon/cookies`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          cookies
+        }),
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Amazon cookie save failed.");
+      }
+
+      const payload = (await response.json()) as { connected?: boolean };
+      if (payload.connected !== true) {
+        throw new Error("Amazon cookie save did not confirm a connected runtime session.");
+      }
+
+      setAmazonConnected(true);
+      setAmazonAuthNote("Amazon Connected ✓");
+      setAmazonCookieInput("");
+      setAmazonCookiePanelOpen(false);
+      appendTranscript(makeTranscript("system", "Amazon Connected ✓"));
+      setBrowserActivityStatus("Amazon.in cookies loaded into the runtime session.");
+      await refreshAmazonConnectionStatus(sessionId, true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save Amazon.in cookies.";
+      setAmazonConnected(false);
+      setAmazonAuthNote(message);
+      setError(message);
+      setBrowserActivityStatus("Amazon.in cookie load failed.");
+    } finally {
+      setAmazonAuthBusy(false);
+    }
   };
 
   return {
@@ -1214,6 +1255,9 @@ export function useDemoShell() {
     audioCaptureSupported,
     voiceSupportMessage,
     amazonConnected,
+    amazonCookiePanelOpen,
+    amazonCookieInput,
+    setAmazonCookieInput,
     amazonAuthBusy,
     amazonAuthNote,
     orderCancelBusy,
@@ -1238,6 +1282,7 @@ export function useDemoShell() {
     fetchLatestOrderSnapshot,
     cancelPlacedOrder,
     connectAmazonIn,
+    saveAmazonCookies,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

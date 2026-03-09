@@ -140,3 +140,20 @@ docker compose up --build
 ```
 
 Use [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md) for the checks that should pass before shipping.
+
+## Amazon Authentication — Production Roadmap
+
+Current demo uses a one-time cookie paste flow for Amazon.in authentication.
+The user exports cookies from their logged-in browser using a cookie export 
+extension, pastes them into BlindNav once, and the browser-runtime loads them
+into the Playwright context via context.add_cookies().
+
+Production implementation will replace this with a persistent browser context flow:
+1. User triggers "Connect Amazon" in the app
+2. Backend spins up a Playwright Chromium instance with Chrome DevTools Protocol (CDP)
+3. User authenticates on Amazon normally (email, password, OTP)
+4. Playwright saves the full browser profile (user_data_dir) to a GCS bucket
+   at sessions/{user_id}/amazon-profile/
+5. Every future shopping session downloads the profile from GCS and loads it
+   into a persistent Playwright context — Amazon treats it as the same returning browser
+6. Zero re-authentication required for the blind user after initial setup

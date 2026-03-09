@@ -75,6 +75,23 @@ ORDERS_CARD_SELECTORS = [
     ".order",
 ]
 
+ORDER_CANCEL_ENTRY_SELECTORS = [
+    "a[href*='cancel']",
+    "input[value*='Cancel']",
+    "button:has-text('Cancel')",
+    "text=Cancel items",
+    "text=Cancel order",
+]
+
+ORDER_CANCEL_CONFIRM_SELECTORS = [
+    "input[value*='Cancel selected items']",
+    "input[value*='Confirm cancellation']",
+    "button:has-text('Confirm cancellation')",
+    "button:has-text('Cancel selected items')",
+    "text=Confirm cancellation",
+    "text=Cancel selected items",
+]
+
 CAPTCHA_SELECTORS = [
     "input#captchacharacters",
     "img[src*='captcha']",
@@ -1242,6 +1259,91 @@ def extract_latest_order_evidence(page: Any) -> dict[str, Any]:
         "returns_entry_hint": returns_entry_hint,
         "notes": notes or None,
         "page_title": page_title,
+    }
+
+
+def attempt_cancel_latest_order(page: Any) -> dict[str, Any]:
+    notes: list[str] = []
+    current_url = safe_page_url(page)
+    if current_url is None or "order" not in _normalize_lower(current_url):
+        if not safe_goto(page, AMAZON_ORDERS_URL):
+            return {
+                "cancelled": False,
+                "cancellable": False,
+                "order_card_title": None,
+                "shipping_stage_text": None,
+                "spoken_summary": "I could not open your orders page to attempt a cancellation.",
+                "notes": "orders_navigation_failed",
+            }
+        notes.append("orders_page_opened_for_cancellation")
+
+    evidence = extract_latest_order_evidence(page)
+    order_title = _normalize_text(evidence.get("order_card_title")) or "your item"
+    shipping_stage_text = _normalize_text(evidence.get("shipping_stage_text")) or None
+    shipping_text_lower = _normalize_lower(shipping_stage_text)
+    if any(token in shipping_text_lower for token in ("shipped", "out for delivery", "delivered", "dispatch")):
+        notes.append("order_already_shipped")
+        return {
+            "cancelled": False,
+            "cancellable": False,
+            "order_card_title": order_title,
+            "shipping_stage_text": shipping_stage_text,
+            "spoken_summary": "This order cannot be cancelled as it has already shipped.",
+            "notes": ", ".join(notes),
+        }
+
+    scope = page
+    for selector in ORDERS_CARD_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        scope = _first(locator)
+        notes.append(f"orders_card_detected_for_cancellation:{selector}")
+        break
+
+    clicked_cancel = False
+    for selector in ORDER_CANCEL_ENTRY_SELECTORS:
+        locator = safe_locator(scope, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        if safe_click(_first(locator)):
+            safe_wait_for_load(page)
+            notes.append(f"cancel_entry_clicked:{selector}")
+            clicked_cancel = True
+            break
+
+    if not clicked_cancel:
+        notes.append("cancel_entry_not_found")
+        return {
+            "cancelled": False,
+            "cancellable": False,
+            "order_card_title": order_title,
+            "shipping_stage_text": shipping_stage_text,
+            "spoken_summary": "This order cannot be cancelled as it has already shipped.",
+            "notes": ", ".join(notes),
+        }
+
+    confirmed = False
+    for selector in ORDER_CANCEL_CONFIRM_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        if safe_click(_first(locator)):
+            safe_wait_for_load(page)
+            notes.append(f"cancel_confirmation_clicked:{selector}")
+            confirmed = True
+            break
+
+    if not confirmed:
+        notes.append("cancel_confirmation_not_found")
+
+    return {
+        "cancelled": True,
+        "cancellable": True,
+        "order_card_title": order_title,
+        "shipping_stage_text": shipping_stage_text,
+        "spoken_summary": f"Your order for {order_title} has been cancelled.",
+        "notes": ", ".join(notes),
     }
 
 

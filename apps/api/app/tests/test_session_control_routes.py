@@ -112,7 +112,7 @@ class FakeBrowserRuntimeClient:
         self.observation_payload = {
             "observed_url": "https://www.amazon.in/gp/css/order-history",
             "page_title": "Your Orders",
-            "detected_page_hints": ["home"],
+            "detected_page_hints": ["orders"],
             "order_id_hint": "407-1234567-8901234",
             "order_date_text": "8 March 2026",
             "shipping_stage_text": "Shipped",
@@ -124,6 +124,24 @@ class FakeBrowserRuntimeClient:
             "returns_entry_hint": "https://www.amazon.in/returns",
         }
 
+    def cancel_latest_order(self, *, session_id: UUID) -> dict[str, Any]:
+        self.observation_payload = {
+            **self.observation_payload,
+            "observed_url": "https://www.amazon.in/gp/css/order-history",
+            "page_title": "Your Orders",
+            "detected_page_hints": ["orders"],
+            "order_card_title": "Pedigree dog food 3kg",
+            "shipping_stage_text": "Cancelled",
+        }
+        return {
+            "cancelled": True,
+            "cancellable": True,
+            "order_card_title": "Pedigree dog food 3kg",
+            "shipping_stage_text": "Cancelled",
+            "spoken_summary": "Your order for Pedigree dog food 3kg has been cancelled.",
+            "notes": "cancel_entry_clicked",
+        }
+
     def handle_error_recovery(self, *, session_id: UUID, error_type: str | None = None) -> None:
         return
 
@@ -132,6 +150,14 @@ class FakeBrowserRuntimeClient:
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return {}
+
+    def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
+        return {
+            "connected": True,
+            "cookie_count": 4,
+            "current_url": "https://www.amazon.in/",
+            "notes": None,
+        }
 
 
 @pytest.fixture
@@ -209,6 +235,26 @@ def test_load_latest_order_snapshot_endpoint_persists_context(client: TestClient
     context = client.get(f"/api/sessions/{session_id}/context")
     assert context.status_code == 200
     assert context.json()["latest_order_snapshot"]["order_card_title"] == "Pedigree dog food 3kg"
+
+
+def test_cancel_latest_order_endpoint_returns_spoken_confirmation(client: TestClient) -> None:
+    session_id = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()["session_id"]
+
+    response = client.post(f"/api/sessions/{session_id}/orders/cancel")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cancelled"] is True
+    assert payload["spoken_summary"] == "Your order for Pedigree dog food 3kg has been cancelled."
+
+
+def test_amazon_status_endpoint_proxies_runtime_cookie_state(client: TestClient) -> None:
+    session_id = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()["session_id"]
+
+    response = client.get(f"/api/auth/amazon/status/{session_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["connected"] is True
+    assert payload["cookie_count"] == 4
 
 
 def test_update_cart_quantity_endpoint_persists_context(client: TestClient) -> None:

@@ -41,6 +41,13 @@ export interface AuthSessionResponse {
   profile: UserProfile;
 }
 
+export interface AmazonConnectionStatus {
+  connected: boolean;
+  cookie_count: number;
+  current_url?: string | null;
+  notes?: string | null;
+}
+
 export interface AgentCommand {
   type: string;
   payload: Record<string, unknown>;
@@ -245,6 +252,15 @@ export interface RuntimeScreenshot {
   image_base64?: string | null;
   mime_type: string;
   source: string;
+  notes?: string | null;
+}
+
+export interface OrderCancellationResult {
+  cancelled: boolean;
+  cancellable?: boolean | null;
+  order_card_title?: string | null;
+  shipping_stage_text?: string | null;
+  spoken_summary: string;
   notes?: string | null;
 }
 

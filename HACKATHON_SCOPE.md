@@ -6,9 +6,10 @@ BlindNav is built for the Gemini Live Agent Challenge as a bounded, implementati
 
 The current repo implements the bounded non-future flow for:
 
-- wake and live voice interaction through the operator shell
+- wake-word and live voice interaction through the operator shell
 - multilingual interaction path
-- spoken shopping intent capture
+- spoken shopping intent capture and wake-driven websocket `user_text`
+- browser-native spoken replies in the shell
 - clarification for incomplete or ambiguous intent
 - merchant trust verification
 - visual page understanding
@@ -20,8 +21,10 @@ The current repo implements the bounded non-future flow for:
 - cart and checkout verification
 - sensitive checkpoints for OTP, CAPTCHA, and payment-auth events
 - final verbal confirmation before purchase
+- browser activity visibility through screenshot, URL, and status polling
+- Amazon.in connect flow surfaced in the shell
 - final user-verifiable session summary
-- basic post-purchase support and latest-order handling
+- basic post-purchase support, latest-order handling, and bounded order cancellation
 
 ## Implemented system support
 

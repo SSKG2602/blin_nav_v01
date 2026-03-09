@@ -1,6 +1,6 @@
 # API Overview
 
-BlindNav exposes a compact backend API centered on session lifecycle, live orchestration, runtime inspection, and user-controlled consent flows.
+BlindNav exposes a compact backend API centered on auth, session lifecycle, deterministic orchestration, runtime inspection, live websocket transport, and user-controlled consent flows.
 
 ## Health
 
@@ -13,8 +13,10 @@ BlindNav exposes a compact backend API centered on session lifecycle, live orche
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `GET /api/auth/amazon/login`
+- `GET /api/auth/amazon/status/{session_id}`
 
-These endpoints support lightweight demo auth and user-scoped session history.
+These routes support lightweight demo auth, user-scoped history, and the shell-visible Amazon.in connect flow.
 
 ## Sessions
 
@@ -36,7 +38,7 @@ These endpoints support lightweight demo auth and user-scoped session history.
 
 - `POST /api/sessions/{session_id}/agent/step`
 
-This is the deterministic state-machine step surface used by the backend orchestration flow.
+This remains the deterministic state-machine step surface used by the backend orchestration flow.
 
 ## Runtime inspection and grounded support
 
@@ -46,13 +48,25 @@ This is the deterministic state-machine step surface used by the backend orchest
 - `POST /api/sessions/{session_id}/cart/quantity`
 - `POST /api/sessions/{session_id}/orders/latest`
 - `GET /api/sessions/{session_id}/orders/latest`
+- `POST /api/sessions/{session_id}/orders/cancel`
+
+These routes support the operator shell’s runtime mirror, browser activity panel, cart management, latest-order loading, and bounded cancellation flow.
 
 ## Live session API
 
 - `POST /api/live/sessions`
 - `WS /api/live/sessions/{session_id}/stream`
 
-The websocket supports live session events including session start, user text, audio, interruption, cancel, checkpoint resolution, and final-confirmation resolution.
+The live websocket supports:
+
+- session creation and `start`
+- wake-driven spoken input normalized into `user_text`
+- optional `audio_chunk` transport
+- backend-emitted `spoken_output`
+- interruption and cancel events
+- clarification responses
+- checkpoint resolution
+- final-confirmation resolution
 
 ## Contract ownership
 

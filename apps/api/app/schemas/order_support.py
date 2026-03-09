@@ -15,3 +15,12 @@ class LatestOrderSnapshot(BaseModel):
     returns_entry_hint: str | None = None
     spoken_summary: str
     notes: str | None = None
+
+
+class OrderCancellationResult(BaseModel):
+    cancelled: bool
+    cancellable: bool | None = None
+    order_card_title: str | None = None
+    shipping_stage_text: str | None = None
+    spoken_summary: str
+    notes: str | None = None

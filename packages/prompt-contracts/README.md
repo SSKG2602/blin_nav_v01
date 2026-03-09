@@ -1,6 +1,6 @@
 # Prompt Contracts
 
-Prompt logic and Gemini wiring are already active in the backend implementation.
+Prompt logic and Gemini wiring are already active in the backend implementation. The docs target Gemini 2.5 Flash as the deployed model family for those prompt-driven flows.
 
 Current canonical locations:
 

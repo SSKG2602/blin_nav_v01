@@ -10,6 +10,7 @@ from browser_runtime.observation.extractor import (
     extract_current_page_screenshot,
 )
 from browser_runtime.observation.models import (
+    RuntimeAmazonAuthStatus,
     RuntimePageObservation,
     RuntimeScreenshotObservation,
 )
@@ -30,3 +31,13 @@ def get_current_page_observation(session_id: UUID) -> RuntimePageObservation:
 def get_current_page_screenshot(session_id: UUID) -> RuntimeScreenshotObservation:
     page = browser_session_manager.get_page(session_id)
     return extract_current_page_screenshot(page)
+
+
+@router.get(
+    "/{session_id}/observation/amazon_auth_status",
+    response_model=RuntimeAmazonAuthStatus,
+)
+def get_amazon_auth_status(session_id: UUID) -> RuntimeAmazonAuthStatus:
+    return RuntimeAmazonAuthStatus.model_validate(
+        browser_session_manager.get_amazon_auth_status(session_id)
+    )

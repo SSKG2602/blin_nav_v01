@@ -82,6 +82,15 @@ def test_handle_error_recovery_action() -> None:
     assert response.status_code == 204
 
 
+def test_cancel_latest_order_action_returns_structured_payload() -> None:
+    session_id = uuid4()
+    response = client.post(f"/sessions/{session_id}/actions/cancel_latest_order")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "cancelled" in payload
+    assert "spoken_summary" in payload
+
+
 def test_health_live() -> None:
     response = client.get("/health/live")
     assert response.status_code == 200
@@ -100,3 +109,12 @@ def test_current_page_screenshot_observation_endpoint() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["mime_type"] == "image/png"
+
+
+def test_amazon_auth_status_observation_endpoint() -> None:
+    session_id = uuid4()
+    response = client.get(f"/sessions/{session_id}/observation/amazon_auth_status")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["connected"] is False
+    assert payload["cookie_count"] == 0

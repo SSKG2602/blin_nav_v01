@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Dict
+from typing import Any, Dict
 from uuid import UUID
 
 try:
@@ -147,7 +147,10 @@ class BrowserSessionManager:
             playwright: Playwright | None = None
             try:
                 playwright = sync_playwright().start()
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+                )
             except Exception as exc:
                 logger.warning(
                     "Playwright launch failed; running in no-op mode: %s",
@@ -187,6 +190,53 @@ class BrowserSessionManager:
                 return self._pages[session_id]
 
             return self._create_page_for_session(session_id)
+
+    def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_browser_started()
+            page = self.get_page(session_id)
+            context = self._contexts.get(session_id)
+            current_url = getattr(page, "url", None)
+            current_url_text = current_url if isinstance(current_url, str) and current_url else None
+            if context is None:
+                return {
+                    "connected": False,
+                    "cookie_count": 0,
+                    "current_url": current_url_text,
+                    "notes": "No Playwright browser context is available for this session.",
+                }
+
+            cookies_fn = getattr(context, "cookies", None)
+            if not callable(cookies_fn):
+                return {
+                    "connected": False,
+                    "cookie_count": 0,
+                    "current_url": current_url_text,
+                    "notes": "Browser context does not expose cookies.",
+                }
+
+            try:
+                raw_cookies = cookies_fn()
+            except Exception as exc:
+                logger.debug("Failed to inspect browser cookies for session %s", session_id, exc_info=True)
+                return {
+                    "connected": False,
+                    "cookie_count": 0,
+                    "current_url": current_url_text,
+                    "notes": f"Cookie inspection failed: {exc}",
+                }
+
+            amazon_cookies = [
+                cookie
+                for cookie in raw_cookies or []
+                if isinstance(cookie, dict) and "amazon.in" in str(cookie.get("domain", "")).lower()
+            ]
+            return {
+                "connected": len(amazon_cookies) > 0,
+                "cookie_count": len(amazon_cookies),
+                "current_url": current_url_text,
+                "notes": None if amazon_cookies else "No amazon.in cookies detected in the runtime session.",
+            }
 
     def close_session(self, session_id: UUID) -> None:
         with self._lock:

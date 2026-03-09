@@ -1,6 +1,8 @@
 import type {
+  AmazonConnectionStatus,
   AuthSessionResponse,
   LiveSessionCreateResponse,
+  OrderCancellationResult,
   RuntimeObservation,
   RuntimeScreenshot,
   SessionContextSnapshot,
@@ -79,6 +81,18 @@ export async function login(params: {
 
 export async function getCurrentUser(): Promise<AuthSessionResponse> {
   return requestJson<AuthSessionResponse>("/api/auth/me");
+}
+
+export function buildAmazonLoginUrl(sessionId?: string | null): string {
+  const url = new URL(`${API_BASE}/api/auth/amazon/login`);
+  if (sessionId) {
+    url.searchParams.set("session_id", sessionId);
+  }
+  return url.toString();
+}
+
+export async function getAmazonConnectionStatus(sessionId: string): Promise<AmazonConnectionStatus> {
+  return requestJson<AmazonConnectionStatus>(`/api/auth/amazon/status/${sessionId}`);
 }
 
 export async function createLiveSession(params: {
@@ -200,6 +214,13 @@ export async function updateCartQuantity(params: {
 
 export async function loadLatestOrderSnapshot(sessionId: string) {
   return requestJson(`/api/sessions/${sessionId}/orders/latest`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+}
+
+export async function cancelLatestOrder(sessionId: string): Promise<OrderCancellationResult> {
+  return requestJson<OrderCancellationResult>(`/api/sessions/${sessionId}/orders/cancel`, {
     method: "POST",
     body: JSON.stringify({})
   });

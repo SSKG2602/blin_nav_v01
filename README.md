@@ -1,67 +1,83 @@
 # BlindNav (`Luminar`)
 
-BlindNav is a voice-first accessibility shopping agent for blind users. It listens to a shopping request, interprets intent, grounds itself on the live merchant page, navigates through a deterministic backend state machine, verifies what it is doing, pauses at sensitive checkpoints, requires final verbal confirmation before purchase, and produces a user-verifiable session record.
+BlindNav is a voice-first accessibility shopping agent for blind users. It captures spoken shopping intent, grounds actions in a live merchant browser session, verifies what it sees before progressing, pauses for explicit consent on sensitive steps, requires final confirmation before purchase, and produces a user-verifiable session record at the end of the flow.
 
-This repository is the runnable implementation. The sibling `../Gemini_Hack` folder is reference material for intended scope, workflow, and architecture; it is not the executable codebase.
+This repository is the runnable implementation. The sibling `../Gemini_Hack` folder remains the intended-scope and workflow reference, but the code in this repo is the implementation truth.
 
 ## Why BlindNav exists
 
-Blind users should not have to trust opaque automation when shopping online. BlindNav is built to keep the agent explainable and constrained:
+Blind shopping workflows should not depend on opaque automation or blind trust. BlindNav is built around a stricter model:
 
-- voice-first interaction is the primary surface
-- browser-grounded evidence is required before important actions
-- vision supports page understanding and verification, not blind clicking
-- sensitive actions are gated by explicit consent checkpoints
-- final order placement requires explicit verbal confirmation
+- voice-first interaction is the primary user surface
+- the backend state machine owns orchestration
+- browser-grounded evidence is required before important progression
+- vision and Gemini 2.5 Flash support interpretation and summarization, not blind clicking
+- sensitive actions pause at explicit checkpoints
+- final order placement requires explicit confirmation
 - low-confidence situations halt or route through recovery instead of guessing
 
-## What is implemented here
+## The runnable stack
 
-The current branch is implementation-complete for the bounded non-future hackathon scope:
+BlindNav runs as three cooperating services:
 
-- deterministic backend orchestration and state-machine control
-- browser-runtime execution and page observation via Playwright
-- live session flow with websocket events, speech integration, interruption handling, and locale-aware interaction
-- intent parsing, clarification, trust checks, grounded navigation, candidate selection, product verification, variant precision checks, review risk analysis, and spoken micro-summaries
-- consent checkpoints for sensitive actions, explicit final purchase confirmation, low-confidence halt, desynchronization recovery, and session self-diagnosis
-- persistent session history, lightweight auth, agent logs, session closure artifacts, cart context, latest-order support, and post-purchase summary data
-- Next.js operator shell for live operation, runtime inspection, checkpoints, final confirmation, cart review, session history, and audit visibility
+- `apps/api` - FastAPI backend for deterministic orchestration, auth, persistence, session control, live websocket transport, verification, checkpoints, final confirmation, session closure, and post-purchase support
+- `browser-runtime` - Playwright-based runtime for merchant navigation, page interaction, observation capture, screenshots, cart/order operations, and grounded execution
+- `apps/web` - Next.js operator shell for voice interaction, live session control, transcript visibility, browser activity monitoring, checkpoint/final-confirmation handling, cart/order controls, and audit visibility
+
+## Implemented features
+
+The current branch implements the bounded non-future BlindNav scope, including:
+
+- wake-word voice flow through the operator shell
+- live websocket voice command capture using `user_text`
+- browser-native spoken replies from backend `spoken_output` events
+- multilingual interaction support
+- spoken shopping intent capture, clarification, and safe ambiguity handling
+- merchant trust verification and visual page understanding
+- grounded search navigation, candidate ranking, product verification, and variant precision checks
+- review risk analysis with spoken takeaways
+- interruption handling, low-confidence halt, and desynchronization recovery
+- cart and checkout verification with explicit checkpoint and final-confirmation gating
+- Amazon.in connect flow surfaced from the shell
+- browser activity monitor with screenshot thumbnail, URL, and status text
+- latest-order support, bounded order cancellation, and post-purchase summary visibility
+- session history, lightweight auth, structured logs, closure artifacts, and self-diagnosis
 
 ## Bounded demo scope
 
 BlindNav is intentionally scoped for a bounded hackathon demo:
 
 - primary merchant target: `amazon.in`
-- backup contingencies: `flipkart.com`, `meesho.com`
-- operator shell: demo and debugging surface, not a consumer-polished storefront
+- bounded backup contingencies: `flipkart.com`, `meesho.com`
+- operator shell: live demo and debugging surface, not a consumer storefront
 - no claim of unconstrained multi-merchant autonomy
-- no claim that future-scope items are implemented beyond what the codebase actually contains
+- no claim that future-scope features are implemented unless the runnable repo supports them
 
-## Architecture principles
+## Deployment shape
 
-- Backend orchestration is the behavioral source of truth.
-- The browser runtime is the execution and observation boundary.
-- Frontend surfaces state and user actions; it does not own business logic.
-- Gemini supports bounded interpretation, summarization, and multimodal assistance.
-- Page evidence, runtime observation, and persisted session context remain the source of truth for execution, consent, and verification.
+The production deployment story for this repo is a three-service Google Cloud Run stack:
 
-See [ARCHITECTURE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/ARCHITECTURE.md) for the full breakdown.
+- `blindnav-api`
+- `blindnav-browser-runtime`
+- `blindnav-web`
+
+The repo already includes production Dockerfiles for all three services and existing Cloud Run assets for the backend under `infra/cloudrun`. See [DEPLOYMENT.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/DEPLOYMENT.md) for the service topology, environment wiring, and rollout notes.
 
 ## Repository layout
 
-- `apps/api` - FastAPI backend, deterministic orchestration, persistence, live transport, auth, session control, and verification layers
-- `apps/web` - Next.js operator shell for live demo operation and audit visibility
-- `browser-runtime` - Playwright-based runtime for navigation, action execution, and observation capture
-- `docs` - supporting repo-local notes aligned to the current implementation
+- `apps/api` - backend orchestration, API routes, live transport, auth, persistence, cart/order/session logic, and Gemini integration
+- `apps/web` - operator shell, browser-native voice capture/TTS, session UI, browser activity panel, and live controls
+- `browser-runtime` - Playwright runtime, action helpers, observation extraction, screenshots, and merchant interaction logic
+- `docs` - supporting implementation notes aligned to the current repo behavior
 - `infra` - Dockerfiles and Cloud Run deployment assets
-- `packages` - reserved contract/package boundaries documented for future extraction, not active publishable packages today
+- `packages` - documented extraction boundaries for contracts that still live in the main implementation
 - `scripts` - local dev, test, and deploy helpers
 
 ## Running locally
 
-Use the practical run guide in [RUNNING_LOCALLY.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/RUNNING_LOCALLY.md).
+Use [RUNNING_LOCALLY.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/RUNNING_LOCALLY.md) for the full startup guide.
 
-Common local commands:
+Common commands:
 
 ```bash
 make install
@@ -71,9 +87,9 @@ make test-runtime
 ./scripts/test/run-frontend-checks.sh
 ```
 
-Pinned local ports:
+Local ports:
 
-- frontend: `3100`
+- frontend shell: `3100`
 - backend API: `8100`
 - browser runtime: `8200`
 - docs/devtools reserve: `4100`
@@ -82,21 +98,12 @@ Pinned local ports:
 
 Testing guidance lives in [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md).
 
-Current repo test surfaces include:
+The current verification surface includes:
 
-- backend pytest suite under `apps/api/app/tests`
-- browser-runtime pytest suite under `browser-runtime/tests`
-- frontend typecheck and production build checks under `apps/web`
-
-## Deployment
-
-Deployment notes live in [DEPLOYMENT.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/DEPLOYMENT.md).
-
-The repo includes:
-
-- Docker Compose for local multi-service execution
-- Dockerfiles for backend, frontend, and browser runtime
-- Cloud Run deployment assets for the backend under `infra/cloudrun`
+- backend pytest suite in `apps/api/app/tests`
+- browser-runtime pytest suite in `browser-runtime/tests`
+- frontend typecheck and production build checks in `apps/web`
+- manual live smoke checks for voice wake, spoken replies, browser activity, Amazon connect, checkpoints, and post-purchase controls
 
 ## Documentation map
 
@@ -116,4 +123,4 @@ BlindNav in this repo reflects architecture-critical backend, runtime, and integ
 
 ## Scope honesty
 
-This repository documents only what is implemented in the current branch. Future scope described in the Gemini_Hack grounding material is not claimed as complete unless the runnable code in this repo supports it.
+These docs describe the bounded implementation that exists in this branch. Future-scope material in `Gemini_Hack` is useful for intent grounding, but it is not claimed as implemented unless the runnable code in this repo supports it.

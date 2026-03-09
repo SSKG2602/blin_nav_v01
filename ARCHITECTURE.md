@@ -23,7 +23,7 @@ BlindNav is not an unconstrained chat agent. The backend advances through explic
 - cart and checkout progression
 - sensitive checkpoints
 - final purchase confirmation
-- post-purchase summary and session closure
+- post-purchase summary, latest-order handling, and session closure
 
 Transitions are evaluated in the backend, not improvised in the frontend.
 
@@ -53,7 +53,7 @@ The browser runtime is the execution and observation boundary. It is responsible
 - navigating merchant pages
 - interacting with search, product, cart, checkout, and order history surfaces
 - capturing page observations and screenshots
-- reading grounded evidence used for verification, recovery, and post-purchase support
+- reading grounded evidence used for verification, recovery, post-purchase support, and bounded order cancellation
 
 It is not allowed to invent product state, trust state, cart state, or checkout state. Those must be derived from observed page evidence and persisted through the backend.
 
@@ -62,16 +62,16 @@ It is not allowed to invent product state, trust state, cart state, or checkout 
 The Next.js shell in `apps/web` exists for live operation and demo visibility:
 
 - start sessions and connect to the live websocket
-- capture typed or spoken utterances
-- display transcript, agent speech, runtime mirror, and event stream
-- surface auth, history, checkpoints, final confirmation, cart context, and latest-order support
+- request microphone permission, capture wake phrase and spoken commands, and play browser-native spoken replies
+- display transcript, agent speech, browser activity screenshot, URL, runtime mirror, and event stream
+- surface auth, Amazon connect status, history, checkpoints, final confirmation, cart context, latest-order support, and bounded cancellation
 - let the operator review or resolve state that is already owned by the backend
 
-The shell can request actions. It does not decide what state the agent is in.
+The shell can request actions. It does not decide what state the agent is in. Screenshot polling and activity text are visibility layers over backend and runtime truth, not new sources of truth.
 
 ## Gemini role
 
-Gemini supports bounded reasoning and summarization tasks:
+Gemini 2.5 Flash is the deployment-target model family for bounded reasoning and summarization tasks:
 
 - intent understanding
 - clarification answer interpretation
@@ -97,6 +97,8 @@ Safety behavior is first-class:
 - low-confidence conditions halt or reroute through recovery
 - interruption is a backend control primitive, not only a frontend playback control
 - recovery stores reason and outcome instead of silently masking desync
+
+Amazon connect remains a shell/runtime integration surface. It does not move auth or merchant-state truth out of the backend/runtime loop.
 
 ## Persistence, logging, and closure
 

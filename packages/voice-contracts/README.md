@@ -2,6 +2,13 @@
 
 BlindNav already includes a live voice/session transport path and voice-related payloads.
 
+Current voice behavior includes:
+
+- wake phrase detection in the frontend shell
+- wake-driven spoken input normalized into websocket `user_text`
+- backend `spoken_output` events for assistant replies
+- browser-native TTS playback in the operator shell
+
 Current canonical locations:
 
 - `apps/api/app/schemas/live_session.py`

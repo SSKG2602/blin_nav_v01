@@ -100,6 +100,13 @@ class BrowserRuntimeClient(Protocol):
     ) -> None:
         ...
 
+    def cancel_latest_order(
+        self,
+        *,
+        session_id: UUID,
+    ) -> dict[str, Any]:
+        ...
+
     def handle_error_recovery(
         self,
         *,
@@ -112,4 +119,7 @@ class BrowserRuntimeClient(Protocol):
         ...
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
+        ...
+
+    def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
         ...

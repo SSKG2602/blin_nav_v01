@@ -7,17 +7,18 @@
 - npm
 - Docker and Docker Compose
 - Playwright runtime dependencies
-- Tesseract OCR available locally if you run the backend outside Docker
+- Tesseract OCR if you run backend/runtime outside containers
+- Chrome or Edge for the full wake-word and browser-native TTS path
 
 ## Environment
 
-1. Copy the example file:
+1. Copy the root example file:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Fill in the values required for your local environment. At minimum, review:
+2. Review the shared values that connect all three services:
 
 - `DATABASE_URL`
 - `REDIS_URL`
@@ -25,10 +26,14 @@ cp .env.example .env
 - `NEXT_PUBLIC_API_BASE_URL`
 - `BROWSER_RUNTIME_BASE_URL`
 - `GEMINI_API_KEY`
+- `GEMINI_MODEL_INTENT`
+- `GEMINI_MODEL_SUMMARY`
+- `GEMINI_MODEL_MULTIMODAL`
+- `GEMINI_MODEL_VISION`
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_REGION`
 
-The backend loads `.env` from `apps/api/app/core/config.py`. The frontend reads `NEXT_PUBLIC_API_BASE_URL`.
+For deployment-target parity, the docs assume Gemini 2.5 Flash as the active model target. The frontend reads `NEXT_PUBLIC_API_BASE_URL`. The backend reads the shared root `.env`. The browser-runtime is reached through `BROWSER_RUNTIME_BASE_URL`.
 
 ## Install dependencies
 
@@ -38,11 +43,11 @@ From the repo root:
 make install
 ```
 
-That creates a root virtual environment, installs backend and browser-runtime Python dependencies, and installs frontend dependencies under `apps/web`.
+That installs backend dependencies, browser-runtime dependencies, and frontend dependencies for the three-service local stack.
 
 ## Start infrastructure
 
-Start PostgreSQL and Redis:
+Start PostgreSQL and Redis first:
 
 ```bash
 docker compose up -d postgres redis
@@ -50,13 +55,13 @@ docker compose up -d postgres redis
 
 ## Startup order
 
-Recommended order:
+Recommended order for the live stack:
 
-1. browser runtime
-2. backend
-3. frontend
+1. browser-runtime
+2. backend API
+3. frontend shell
 
-Individual start commands:
+Individual commands:
 
 ```bash
 make dev-runtime
@@ -64,13 +69,13 @@ make dev-backend
 make dev-frontend
 ```
 
-Or run all three together:
+Or start all three together:
 
 ```bash
 make dev
 ```
 
-Equivalent helper scripts:
+Helper scripts:
 
 - `scripts/dev/start-browser-runtime.sh`
 - `scripts/dev/start-backend.sh`
@@ -82,19 +87,28 @@ Equivalent helper scripts:
 - frontend shell: `http://localhost:3100`
 - backend health: `http://localhost:8100/health`
 - backend readiness: `http://localhost:8100/health/ready`
-- browser runtime liveness: `http://localhost:8200/health/live`
+- backend liveness: `http://localhost:8100/health/live`
+- browser-runtime liveness: `http://localhost:8200/health/live`
 
 Port `3000` is intentionally unused.
 
-## Minimal smoke path
+## Manual smoke path
 
-1. open the shell at `http://localhost:3100`
-2. create an account or sign in
-3. start a live session
-4. submit a shopping request by voice or text
-5. verify transcript updates, runtime mirror updates, and state progression
-6. confirm checkpoint and final-confirmation surfaces appear when required
-7. verify session history, cart context, and latest-order controls are reachable
+1. Open `http://localhost:3100`.
+2. Create an account or sign in.
+3. Click `Wake Luminar`.
+4. Confirm the microphone permission prompt appears in Chrome or Edge.
+5. Confirm the shell changes into wake-listening state.
+6. Say `Luminar`.
+7. Confirm the transcript shows wake detection and voice capture starts.
+8. Speak a shopping command and confirm the transcript panel updates immediately.
+9. Confirm the backend processes the command over the live websocket as `user_text`.
+10. Confirm spoken backend replies are read aloud through browser-native TTS.
+11. Confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text.
+12. If needed, use `Connect Amazon.in` and confirm the shell reflects its current status.
+13. Exercise clarification, checkpoint, or final-confirmation states if the flow reaches them.
+14. After an order snapshot is available, verify latest-order loading and bounded cancellation behavior.
+15. Confirm session history, cart context, and post-purchase summary surfaces remain reachable.
 
 ## Docker Compose option
 
@@ -112,15 +126,17 @@ The compose stack includes:
 - postgres
 - redis
 
-## Notes for local speech
+## Notes for local voice
 
 - the default live speech provider is `browser-native`
-- browser-native mode uses the client/browser surface for transcript hints and TTS playback behavior
-- microphone permission must be granted in the browser when testing live voice input
+- wake-word capture and voice command recognition rely on browser speech recognition support
+- browser-native TTS relies on `window.speechSynthesis`
+- Chrome or Edge is the supported browser path for the full voice experience
+- if speech recognition is unavailable, typed input still remains available in the shell
 
 ## Local shutdown
 
-If you used `make dev`, stop the running process in that terminal.
+If you used `make dev`, stop that process in its terminal.
 
 If you used separate processes, stop each one individually and then stop infrastructure:
 
@@ -128,4 +144,4 @@ If you used separate processes, stop each one individually and then stop infrast
 docker compose stop postgres redis
 ```
 
-Use [TROUBLESHOOTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TROUBLESHOOTING.md) if startup or health checks fail.
+Use [TROUBLESHOOTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TROUBLESHOOTING.md) if startup, health checks, voice flow, or browser activity visibility fail.

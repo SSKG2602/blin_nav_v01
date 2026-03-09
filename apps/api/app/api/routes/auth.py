@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from starlette import status
+from starlette.responses import RedirectResponse
 
 from app.db.session import get_db
 from app.repositories.auth_repo import authenticate_user, create_user, issue_auth_token
-from app.schemas.auth import AuthSessionResponse, LoginRequest, SignupRequest
-from app.security import get_current_user_required
+from app.schemas.auth import AmazonConnectionStatus, AuthSessionResponse, LoginRequest, SignupRequest
+from app.security import get_current_user_optional, get_current_user_required
+from app.tools.browser_runtime import BrowserRuntimeClient
+from app.tools.dependencies import get_browser_runtime_client
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -72,3 +77,28 @@ def login_endpoint(
 )
 def get_me_endpoint(current_user=Depends(get_current_user_required)) -> AuthSessionResponse:
     return AuthSessionResponse(token=current_user.token, profile=current_user.profile)
+
+
+@router.get("/amazon/login")
+def amazon_login_redirect() -> RedirectResponse:
+    return RedirectResponse(
+        url="https://www.amazon.in/ap/signin",
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    )
+
+
+@router.get(
+    "/amazon/status/{session_id}",
+    response_model=AmazonConnectionStatus,
+)
+def get_amazon_connection_status(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
+    current_user=Depends(get_current_user_optional),
+) -> AmazonConnectionStatus:
+    from app.api.routes.session import _require_existing_session
+
+    _require_existing_session(db, session_id, current_user=current_user)
+    payload = browser_client.get_amazon_auth_status(session_id=session_id)
+    return AmazonConnectionStatus.model_validate(payload or {})

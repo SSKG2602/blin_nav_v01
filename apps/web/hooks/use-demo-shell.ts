@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  buildAmazonLoginUrl,
+  cancelLatestOrder,
   buildLiveWebSocketUrl,
   createLiveSession,
   getCurrentUser,
+  getAmazonConnectionStatus,
   getCheckpoint,
   loadLatestOrderSnapshot,
   login,
@@ -21,8 +24,10 @@ import {
 } from "@/services/api";
 import type {
   AgentStepResponse,
+  AmazonConnectionStatus,
   ClarificationRequest,
   LiveGatewayEvent,
+  OrderCancellationResult,
   RuntimeObservation,
   RuntimeScreenshot,
   SessionContextSnapshot,
@@ -38,6 +43,7 @@ import {
 } from "@/lib/browser-speech";
 
 const SUPPORTED_LOCALES = ["en-IN", "hi-IN"];
+const VOICE_RECOGNITION_UNAVAILABLE_MESSAGE = "Voice recognition requires Chrome or Edge browser";
 
 function safeLocale(input: string): string {
   if (SUPPORTED_LOCALES.includes(input)) {
@@ -72,6 +78,21 @@ async function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function stripSpokenPrefix(text: string, locale: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const prefixes = locale === "hi-IN" ? ["सारांश: ", "Summary: "] : ["Summary: ", "सारांश: "];
+  for (const prefix of prefixes) {
+    if (trimmed.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim();
+    }
+  }
+  return trimmed;
+}
+
 function stopMediaStream(stream: MediaStream | null) {
   if (!stream) {
     return;
@@ -82,8 +103,12 @@ function stopMediaStream(stream: MediaStream | null) {
 export function useDemoShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
+  const screenshotPollRef = useRef<number | null>(null);
+  const amazonAuthPollRef = useRef<number | null>(null);
+  const amazonPopupRef = useRef<Window | null>(null);
   const wakeRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
+  const pendingVoiceCaptureRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -106,6 +131,7 @@ export function useDemoShell() {
   const [sessionHistory, setSessionHistory] = useState<SessionSummary[]>([]);
   const [runtimeObservation, setRuntimeObservation] = useState<RuntimeObservation | null>(null);
   const [runtimeScreenshot, setRuntimeScreenshot] = useState<RuntimeScreenshot | null>(null);
+  const [browserActivityStatus, setBrowserActivityStatus] = useState("Waiting for a live browser session.");
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -118,6 +144,11 @@ export function useDemoShell() {
   const [speaking, setSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [audioCaptureSupported, setAudioCaptureSupported] = useState(false);
+  const [voiceSupportMessage, setVoiceSupportMessage] = useState<string | null>(null);
+  const [amazonConnected, setAmazonConnected] = useState(false);
+  const [amazonAuthBusy, setAmazonAuthBusy] = useState(false);
+  const [amazonAuthNote, setAmazonAuthNote] = useState<string | null>(null);
+  const [orderCancelBusy, setOrderCancelBusy] = useState(false);
 
   const appendTranscript = (item: TranscriptItem) => {
     setTranscript((prev) => [item, ...prev].slice(0, 120));
@@ -136,6 +167,28 @@ export function useDemoShell() {
     }
   };
 
+  const refreshRuntimeObservationState = async (id: string, silent = false) => {
+    try {
+      const observation = await getRuntimeObservation(id);
+      setRuntimeObservation(observation);
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to refresh runtime observation.");
+      }
+    }
+  };
+
+  const refreshRuntimeScreenshotState = async (id: string, silent = false) => {
+    try {
+      const screenshot = await getRuntimeScreenshot(id);
+      setRuntimeScreenshot(screenshot);
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to refresh runtime screenshot.");
+      }
+    }
+  };
+
   const refreshRuntimeState = async (id: string) => {
     try {
       const [observation, screenshot] = await Promise.all([
@@ -146,6 +199,24 @@ export function useDemoShell() {
       setRuntimeScreenshot(screenshot);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh runtime state.");
+    }
+  };
+
+  const refreshAmazonConnectionStatus = async (id: string, silent = false): Promise<AmazonConnectionStatus | null> => {
+    try {
+      const status = await getAmazonConnectionStatus(id);
+      setAmazonConnected(status.connected);
+      if (status.connected) {
+        setAmazonAuthNote("Amazon Connected ✓");
+      } else if (status.notes) {
+        setAmazonAuthNote(status.notes);
+      }
+      return status;
+    } catch (err) {
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to inspect Amazon connection status.");
+      }
+      return null;
     }
   };
 
@@ -160,7 +231,7 @@ export function useDemoShell() {
         const checkpointResult = await getCheckpoint(id);
         setCheckpoint(checkpointResult);
       }
-      await refreshRuntimeState(id);
+      await refreshRuntimeObservationState(id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh session context.");
     }
@@ -173,11 +244,33 @@ export function useDemoShell() {
     }
   };
 
+  const stopScreenshotPolling = () => {
+    if (screenshotPollRef.current !== null) {
+      window.clearInterval(screenshotPollRef.current);
+      screenshotPollRef.current = null;
+    }
+  };
+
+  const stopAmazonAuthPolling = () => {
+    if (amazonAuthPollRef.current !== null) {
+      window.clearInterval(amazonAuthPollRef.current);
+      amazonAuthPollRef.current = null;
+    }
+  };
+
   const startPolling = (id: string) => {
     stopPolling();
     pollRef.current = window.setInterval(() => {
       void refreshContext(id);
     }, 3000);
+  };
+
+  const startScreenshotPolling = (id: string) => {
+    stopScreenshotPolling();
+    void refreshRuntimeScreenshotState(id, true);
+    screenshotPollRef.current = window.setInterval(() => {
+      void refreshRuntimeScreenshotState(id, true);
+    }, 2000);
   };
 
   const stopSpeechPlayback = () => {
@@ -192,6 +285,7 @@ export function useDemoShell() {
   };
 
   const stopListening = () => {
+    pendingVoiceCaptureRef.current = false;
     if (listeningTimeoutRef.current !== null) {
       window.clearTimeout(listeningTimeoutRef.current);
       listeningTimeoutRef.current = null;
@@ -213,34 +307,134 @@ export function useDemoShell() {
   };
 
   const stopWakePhraseListener = () => {
+    setWakePhraseEnabled(false);
     if (wakeRecognitionRef.current) {
       wakeRecognitionRef.current.stop();
       wakeRecognitionRef.current = null;
     }
   };
 
+  const ensureMicrophonePermission = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone access is not available in this browser.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stopMediaStream(stream);
+  };
+
+  const sendRecognizedUserText = (text: string) => {
+    const ws = wsRef.current;
+    const normalized = text.trim();
+    if (!normalized || !ws || ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    ws.send(
+      JSON.stringify({
+        type: "user_text",
+        text: normalized,
+        locale: safeLocale(locale)
+      })
+    );
+    appendTranscript(makeTranscript("user", normalized));
+    setBrowserActivityStatus(`Sent voice command: ${normalized}`);
+    return true;
+  };
+
+  const startWakePhraseListener = () => {
+    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
+    if (!SpeechRecognitionCtor) {
+      setSpeechSupported(false);
+      setVoiceSupportMessage(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
+      setError(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+
+    stopWakePhraseListener();
+
+    const recognition = new SpeechRecognitionCtor();
+    wakeRecognitionRef.current = recognition;
+    setWakePhraseEnabled(true);
+    recognition.lang = safeLocale(locale);
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
+      const indexedEvent = event as BrowserSpeechRecognitionEventLike & { resultIndex?: number };
+      const startIndex = typeof indexedEvent.resultIndex === "number" ? indexedEvent.resultIndex : 0;
+      for (let index = startIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        if (!result?.isFinal) {
+          continue;
+        }
+        const transcriptText = result[0]?.transcript?.trim().toLowerCase() ?? "";
+        if (!transcriptText || !transcriptText.includes("luminar")) {
+          continue;
+        }
+
+        setWakeActive(true);
+        appendTranscript(makeTranscript("system", 'Wake phrase "Luminar" detected. Listening for commands.'));
+        setBrowserActivityStatus('Wake phrase detected. Listening for voice commands.');
+        stopWakePhraseListener();
+        if (connected && wsRef.current?.readyState === WebSocket.OPEN) {
+          void startListening();
+        } else {
+          pendingVoiceCaptureRef.current = true;
+        }
+        return;
+      }
+    };
+    recognition.onerror = () => {
+      setError("Wake phrase listening failed. Please try again.");
+      setBrowserActivityStatus("Wake phrase listening failed.");
+      stopWakePhraseListener();
+    };
+    recognition.onend = () => {
+      if (wakeRecognitionRef.current === recognition) {
+        wakeRecognitionRef.current = null;
+      }
+      setWakePhraseEnabled(false);
+    };
+    recognition.start();
+    return true;
+  };
+
   const closeConnection = () => {
     stopListening();
     stopWakePhraseListener();
     stopSpeechPlayback();
+    stopAmazonAuthPolling();
+    stopScreenshotPolling();
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
+    if (amazonPopupRef.current && !amazonPopupRef.current.closed) {
+      amazonPopupRef.current.close();
+      amazonPopupRef.current = null;
+    }
     setConnected(false);
     setConnecting(false);
     setWakeActive(false);
+    setWakePhraseEnabled(false);
+    setAmazonConnected(false);
+    setAmazonAuthBusy(false);
+    setAmazonAuthNote(null);
+    setBrowserActivityStatus("Waiting for a live browser session.");
     stopPolling();
   };
 
   useEffect(() => {
-    setSpeechSupported(Boolean(getSpeechRecognitionConstructor()));
+    const supported = Boolean(getSpeechRecognitionConstructor());
+    setSpeechSupported(supported);
     setAudioCaptureSupported(
       typeof window !== "undefined" &&
         typeof navigator !== "undefined" &&
         Boolean(navigator.mediaDevices?.getUserMedia) &&
         typeof MediaRecorder !== "undefined"
     );
+    setVoiceSupportMessage(supported ? null : VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
     void (async () => {
       try {
         const auth = await getCurrentUser();
@@ -259,53 +453,6 @@ export function useDemoShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!wakePhraseEnabled || connected || connecting || listening) {
-      stopWakePhraseListener();
-      return;
-    }
-    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
-    if (!SpeechRecognitionCtor) {
-      return;
-    }
-    const recognition = new SpeechRecognitionCtor();
-    wakeRecognitionRef.current = recognition;
-    recognition.lang = safeLocale(locale);
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
-      const phrase = event.results?.[0]?.[0]?.transcript?.trim().toLowerCase() ?? "";
-      if (!phrase) {
-        return;
-      }
-      if (
-        phrase.includes("wake luminar") ||
-        phrase.includes("hey luminar") ||
-        phrase.includes("luminar wake")
-      ) {
-        appendTranscript(makeTranscript("system", "Wake phrase detected. Starting live session."));
-        stopWakePhraseListener();
-        void startLiveSession();
-      }
-    };
-    recognition.onerror = () => {
-      stopWakePhraseListener();
-    };
-    recognition.onend = () => {
-      if (wakeRecognitionRef.current === recognition) {
-        wakeRecognitionRef.current = null;
-      }
-    };
-    recognition.start();
-    return () => {
-      if (wakeRecognitionRef.current === recognition) {
-        recognition.stop();
-        wakeRecognitionRef.current = null;
-      }
-    };
-  }, [wakePhraseEnabled, connected, connecting, listening, locale]);
-
   const playSpokenPayload = async (data: Record<string, unknown>) => {
     stopSpeechPlayback();
 
@@ -313,6 +460,7 @@ export function useDemoShell() {
     const text = typeof data.text === "string" ? data.text : "";
     const payloadLocale = typeof data.locale === "string" ? data.locale : safeLocale(locale);
     const playbackMode = typeof data.playback_mode === "string" ? data.playback_mode : null;
+    const cleanText = stripSpokenPrefix(text, payloadLocale);
 
     if (audioBase64) {
       const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
@@ -331,16 +479,19 @@ export function useDemoShell() {
     }
 
     if (
-      text &&
+      cleanText &&
       typeof window !== "undefined" &&
       "speechSynthesis" in window &&
       (playbackMode === "browser_tts" || playbackMode === null)
     ) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = payloadLocale;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = safeLocale(payloadLocale);
+      utterance.rate = 0.9;
       utterance.onend = () => setSpeaking(false);
       utterance.onerror = () => setSpeaking(false);
       setSpeaking(true);
+      setBrowserActivityStatus("Speaking...");
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -357,6 +508,7 @@ export function useDemoShell() {
           ? payload.data.message
           : "Live session connected.";
       appendTranscript(makeTranscript("system", message));
+      setBrowserActivityStatus("Browser session connected. Waiting for the live start event.");
       return;
     }
 
@@ -366,6 +518,7 @@ export function useDemoShell() {
           ? payload.data.message
           : "Wake path active. Listening for commands.";
       appendTranscript(makeTranscript("system", message));
+      setBrowserActivityStatus("Live session started. Waiting for the user's shopping request.");
       return;
     }
 
@@ -373,6 +526,7 @@ export function useDemoShell() {
       const text = typeof payload.data.text === "string" ? payload.data.text : "";
       if (text) {
         appendTranscript(makeTranscript("user", text));
+        setBrowserActivityStatus("Captured user speech and sent it to the agent.");
       }
       return;
     }
@@ -380,6 +534,7 @@ export function useDemoShell() {
     if (payload.event === "interpreted_intent") {
       const action = typeof payload.data.action === "string" ? payload.data.action : "UNKNOWN";
       appendTranscript(makeTranscript("system", `Interpreted intent: ${action}`));
+      setBrowserActivityStatus(`Preparing browser actions for ${action.toLowerCase().replaceAll("_", " ")}.`);
       return;
     }
 
@@ -388,6 +543,9 @@ export function useDemoShell() {
       if (typeof response.new_state === "string") {
         setCurrentState(response.new_state);
       }
+      setBrowserActivityStatus(
+        response.spoken_summary?.trim() || `Browser state changed to ${response.new_state}.`
+      );
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -396,8 +554,10 @@ export function useDemoShell() {
 
     if (payload.event === "spoken_output") {
       const text = typeof payload.data.text === "string" ? payload.data.text : "";
+      const payloadLocale = typeof payload.data.locale === "string" ? payload.data.locale : safeLocale(locale);
+      const cleanedText = stripSpokenPrefix(text, payloadLocale);
       if (text) {
-        appendTranscript(makeTranscript("assistant", text));
+        appendTranscript(makeTranscript("assistant", cleanedText || text));
       }
       void playSpokenPayload(payload.data);
       return;
@@ -413,6 +573,7 @@ export function useDemoShell() {
       appendTranscript(
         makeTranscript("warning", localizedMessage || incoming.prompt_to_user || "Checkpoint required.")
       );
+      setBrowserActivityStatus("Browser flow paused for a sensitive checkpoint.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -432,6 +593,7 @@ export function useDemoShell() {
           localizedMessage || incoming.prompt_to_user || "Clarification is required before continuing."
         )
       );
+      setBrowserActivityStatus("Waiting for clarification before the browser continues.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -455,6 +617,7 @@ export function useDemoShell() {
             : "Clarification response sent."
         )
       );
+      setBrowserActivityStatus("Clarification response sent. Resuming browser flow.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -465,6 +628,7 @@ export function useDemoShell() {
       const incoming = payload.data as unknown as SensitiveCheckpoint;
       setCheckpoint(incoming);
       appendTranscript(makeTranscript("system", `Checkpoint resolved: ${incoming.status}`));
+      setBrowserActivityStatus("Checkpoint resolved. Browser flow can continue.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -477,6 +641,7 @@ export function useDemoShell() {
           ? payload.data.message
           : "Final confirmation is required.";
       appendTranscript(makeTranscript("warning", message));
+      setBrowserActivityStatus("Waiting for final purchase confirmation.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -492,6 +657,7 @@ export function useDemoShell() {
             : "Final confirmation resolved."
         )
       );
+      setBrowserActivityStatus("Final confirmation resolved.");
       if (sessionId) {
         void refreshContext(sessionId);
       }
@@ -505,6 +671,7 @@ export function useDemoShell() {
           : "Interruption acknowledged.";
       appendTranscript(makeTranscript("warning", message));
       stopSpeechPlayback();
+      setBrowserActivityStatus("User interruption received. Re-anchoring the browser flow.");
       return;
     }
 
@@ -512,6 +679,7 @@ export function useDemoShell() {
       const detail = typeof payload.data.detail === "string" ? payload.data.detail : "Unknown error";
       setError(detail);
       appendTranscript(makeTranscript("warning", detail));
+      setBrowserActivityStatus(`Browser activity error: ${detail}`);
       return;
     }
   };
@@ -523,7 +691,7 @@ export function useDemoShell() {
 
     setError(null);
     setConnecting(true);
-    setWakeActive(true);
+    setWakeActive(false);
 
     try {
       const live = await createLiveSession({
@@ -536,8 +704,12 @@ export function useDemoShell() {
         setLocale(safeLocale(live.locale));
       }
       await refreshContext(live.session_id);
+      await refreshRuntimeScreenshotState(live.session_id, true);
+      await refreshAmazonConnectionStatus(live.session_id, true);
       await refreshSessionHistory();
       startPolling(live.session_id);
+      startScreenshotPolling(live.session_id);
+      setBrowserActivityStatus("Starting a live browser session on amazon.in.");
 
       const ws = new WebSocket(buildLiveWebSocketUrl(live.websocket_path));
       wsRef.current = ws;
@@ -551,14 +723,19 @@ export function useDemoShell() {
             locale: safeLocale(locale)
           })
         );
+        if (pendingVoiceCaptureRef.current) {
+          void startListening();
+        }
       };
 
       ws.onclose = () => {
         setConnected(false);
         setConnecting(false);
         setWakeActive(false);
+        setWakePhraseEnabled(false);
         setListening(false);
         stopPolling();
+        stopScreenshotPolling();
         stopSpeechPlayback();
       };
 
@@ -669,116 +846,99 @@ export function useDemoShell() {
       return;
     }
 
-    setError(null);
-    transcriptHintRef.current = null;
-    audioChunksRef.current = [];
-
     const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
-    if (!SpeechRecognitionCtor && !audioCaptureSupported) {
-      setError("Browser speech APIs are unavailable.");
+    if (!SpeechRecognitionCtor) {
+      setSpeechSupported(false);
+      setVoiceSupportMessage(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
+      setError(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
       return;
     }
 
+    setError(null);
+    setVoiceSupportMessage(null);
+    transcriptHintRef.current = null;
+    audioChunksRef.current = [];
+
     try {
-      if (audioCaptureSupported && navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
-        const recorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = recorder;
-        recorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-          }
-        };
-        recorder.onstop = async () => {
-          const currentWs = wsRef.current;
-          const transcriptHint = transcriptHintRef.current?.trim() || null;
-          const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          audioChunksRef.current = [];
-          stopMediaStream(mediaStreamRef.current);
-          mediaStreamRef.current = null;
-          mediaRecorderRef.current = null;
+      await ensureMicrophonePermission();
 
-          if (!currentWs || currentWs.readyState !== WebSocket.OPEN) {
-            return;
+      const recognition = new SpeechRecognitionCtor();
+      recognitionRef.current = recognition;
+      recognition.lang = safeLocale(locale);
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
+        const indexedEvent = event as BrowserSpeechRecognitionEventLike & { resultIndex?: number };
+        const startIndex = typeof indexedEvent.resultIndex === "number" ? indexedEvent.resultIndex : 0;
+        for (let index = startIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          if (!result?.isFinal) {
+            continue;
           }
-
-          if (blob.size > 0) {
-            try {
-              const audioBase64 = await blobToBase64(blob);
-              currentWs.send(
-                JSON.stringify({
-                  type: "audio_chunk",
-                  audio_base64: audioBase64,
-                  transcript_hint: transcriptHint,
-                  locale: safeLocale(locale)
-                })
-              );
-              return;
-            } catch {
-              // fall through to transcript-only path
-            }
+          const transcriptText = result[0]?.transcript?.trim() ?? "";
+          if (transcriptText) {
+            transcriptHintRef.current = transcriptText;
+            sendRecognizedUserText(transcriptText);
           }
-
-          if (transcriptHint) {
-            currentWs.send(
-              JSON.stringify({
-                type: "user_text",
-                text: transcriptHint,
-                locale: safeLocale(locale)
-              })
-            );
-          }
-        };
-        recorder.start();
-      }
-
-      if (SpeechRecognitionCtor) {
-        const recognition = new SpeechRecognitionCtor();
-        recognitionRef.current = recognition;
-        recognition.lang = safeLocale(locale);
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-        recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
-          const result = event.results?.[0]?.[0]?.transcript?.trim() ?? "";
-          if (result) {
-            transcriptHintRef.current = result;
-          }
-          if (mediaRecorderRef.current?.state === "recording") {
-            mediaRecorderRef.current.stop();
-          } else if (ws.readyState === WebSocket.OPEN && result) {
-            ws.send(
-              JSON.stringify({
-                type: "user_text",
-                text: result,
-                locale: safeLocale(locale)
-              })
-            );
-          }
-        };
-        recognition.onerror = () => {
-          setError("Speech recognition failed. You can still type commands.");
-          stopListening();
-        };
-        recognition.onend = () => {
-          if (mediaRecorderRef.current?.state === "recording") {
-            mediaRecorderRef.current.stop();
-          } else {
-            setListening(false);
-          }
-          recognitionRef.current = null;
-        };
-        recognition.start();
-      }
+        }
+      };
+      recognition.onerror = () => {
+        setError("Speech recognition failed. You can still type commands.");
+        setBrowserActivityStatus("Speech recognition failed. Type the command instead.");
+        stopListening();
+      };
+      recognition.onend = () => {
+        setListening(false);
+        recognitionRef.current = null;
+      };
+      recognition.start();
 
       setListening(true);
+      pendingVoiceCaptureRef.current = false;
       appendTranscript(makeTranscript("system", "Listening for your voice command."));
-      listeningTimeoutRef.current = window.setTimeout(() => {
-        stopListening();
-      }, 6500);
+      setBrowserActivityStatus("Listening for voice commands.");
     } catch (err) {
       stopListening();
+      setError(err instanceof Error ? err.message : "Microphone access failed.");
+    }
+  };
+
+  const startWakeSequence = async () => {
+    if (connecting || wakePhraseEnabled || wakeActive) {
+      return;
+    }
+
+    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
+    if (!SpeechRecognitionCtor) {
+      setSpeechSupported(false);
+      setVoiceSupportMessage(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
+      setError(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
+      return;
+    }
+
+    setSpeechSupported(true);
+    setError(null);
+    setVoiceSupportMessage(null);
+    setWakeActive(false);
+    pendingVoiceCaptureRef.current = false;
+
+    try {
+      await ensureMicrophonePermission();
+      setBrowserActivityStatus('Listening for the wake phrase "Luminar"...');
+      appendTranscript(makeTranscript("system", 'Microphone ready. Say "Luminar" to begin speaking.'));
+
+      if (!connected) {
+        await startLiveSession();
+        if (!wsRef.current) {
+          return;
+        }
+      }
+
+      startWakePhraseListener();
+    } catch (err) {
+      setWakePhraseEnabled(false);
+      setWakeActive(false);
       setError(err instanceof Error ? err.message : "Microphone access failed.");
     }
   };
@@ -937,12 +1097,83 @@ export function useDemoShell() {
       return;
     }
     try {
+      setBrowserActivityStatus("Loading the latest order details from amazon.in.");
       await loadLatestOrderSnapshot(sessionId);
       appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
       await refreshContext(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load latest order snapshot.");
     }
+  };
+
+  const cancelPlacedOrder = async () => {
+    if (!sessionId) {
+      return;
+    }
+    setOrderCancelBusy(true);
+    setError(null);
+    setBrowserActivityStatus("Attempting to cancel the latest order from amazon.in.");
+    try {
+      const result: OrderCancellationResult = await cancelLatestOrder(sessionId);
+      appendTranscript(makeTranscript(result.cancelled ? "assistant" : "warning", result.spoken_summary));
+      setBrowserActivityStatus(result.spoken_summary);
+      await refreshContext(sessionId);
+      await refreshRuntimeScreenshotState(sessionId, true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to cancel the latest order.");
+    } finally {
+      setOrderCancelBusy(false);
+    }
+  };
+
+  const connectAmazonIn = async () => {
+    if (!sessionId) {
+      setError("Start a live session before connecting Amazon.in.");
+      return;
+    }
+    setAmazonAuthBusy(true);
+    setError(null);
+    setAmazonAuthNote("Waiting for Amazon login and runtime cookie capture...");
+    setBrowserActivityStatus("Opening the Amazon.in login popup.");
+    const popup = window.open(
+      buildAmazonLoginUrl(sessionId),
+      "blindnav-amazon-login",
+      "popup=yes,width=540,height=720"
+    );
+    if (!popup) {
+      setAmazonAuthBusy(false);
+      setError("Popup blocked. Allow popups for BlindNav to continue.");
+      return;
+    }
+    amazonPopupRef.current = popup;
+    appendTranscript(makeTranscript("system", "Opened Amazon.in login popup."));
+    await refreshAmazonConnectionStatus(sessionId, true);
+    stopAmazonAuthPolling();
+    amazonAuthPollRef.current = window.setInterval(() => {
+      void (async () => {
+        if (!sessionId) {
+          return;
+        }
+        const status = await refreshAmazonConnectionStatus(sessionId, true);
+        if (status?.connected) {
+          setAmazonAuthBusy(false);
+          setBrowserActivityStatus("Amazon.in runtime cookies detected.");
+          appendTranscript(makeTranscript("system", "Amazon Connected ✓"));
+          stopAmazonAuthPolling();
+          if (amazonPopupRef.current && !amazonPopupRef.current.closed) {
+            amazonPopupRef.current.close();
+          }
+          amazonPopupRef.current = null;
+          return;
+        }
+        if (amazonPopupRef.current?.closed) {
+          setAmazonAuthBusy(false);
+          setAmazonAuthNote("Amazon popup closed before runtime cookies were captured.");
+          stopAmazonAuthPolling();
+          amazonPopupRef.current = null;
+        }
+      })();
+    }, 2000);
   };
 
   return {
@@ -975,11 +1206,17 @@ export function useDemoShell() {
     sessionHistory,
     runtimeObservation,
     runtimeScreenshot,
+    browserActivityStatus,
     error,
     listening,
     speaking,
     speechSupported,
     audioCaptureSupported,
+    voiceSupportMessage,
+    amazonConnected,
+    amazonAuthBusy,
+    amazonAuthNote,
+    orderCancelBusy,
     finalConfirmationPending:
       context?.latest_final_purchase_confirmation?.required === true &&
       context?.latest_final_purchase_confirmation?.confirmed !== true,
@@ -988,6 +1225,7 @@ export function useDemoShell() {
     loginUser,
     signupUser,
     logoutUser,
+    startWakeSequence,
     startLiveSession,
     startListening,
     stopListening,
@@ -998,6 +1236,8 @@ export function useDemoShell() {
     removeCartLine,
     updateCartLineQuantity,
     fetchLatestOrderSnapshot,
+    cancelPlacedOrder,
+    connectAmazonIn,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

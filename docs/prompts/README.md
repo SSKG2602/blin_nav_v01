@@ -1,6 +1,6 @@
 # Prompt Notes
 
-BlindNav already uses Gemini-backed interpretation, summarization, and multimodal support in the backend. Prompt ownership is currently implementation-local rather than published as a standalone contract package.
+BlindNav already uses Gemini-backed interpretation, summarization, and multimodal support in the backend. The current documentation target is Gemini 2.5 Flash for deployed prompt-driven behavior, while prompt ownership remains implementation-local rather than published as a standalone contract package.
 
 Relevant implementation areas:
 

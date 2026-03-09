@@ -39,6 +39,38 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             response.text[:300],
         )
 
+    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            with httpx.Client(base_url=self._base_url, timeout=self._timeout_seconds) as client:
+                response = client.post(path, json=payload)
+        except Exception as exc:
+            logger.warning(
+                "browser_runtime_request_failed path=%s error=%s",
+                path,
+                exc,
+            )
+            return {}
+
+        if not (200 <= response.status_code < 300):
+            logger.warning(
+                "browser_runtime_non_2xx path=%s status_code=%s body=%s",
+                path,
+                response.status_code,
+                response.text[:300],
+            )
+            return {}
+
+        try:
+            payload_json = response.json()
+        except Exception as exc:
+            logger.warning(
+                "browser_runtime_invalid_json path=%s error=%s",
+                path,
+                exc,
+            )
+            return {}
+        return payload_json if isinstance(payload_json, dict) else {}
+
     def _get_json(self, path: str) -> dict[str, Any]:
         try:
             with httpx.Client(base_url=self._base_url, timeout=self._timeout_seconds) as client:
@@ -220,6 +252,16 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             {},
         )
 
+    def cancel_latest_order(
+        self,
+        *,
+        session_id: UUID,
+    ) -> dict[str, Any]:
+        return self._post_json(
+            f"/sessions/{session_id}/actions/cancel_latest_order",
+            {},
+        )
+
     def handle_error_recovery(
         self,
         *,
@@ -238,3 +280,6 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return self._get_json(f"/sessions/{session_id}/observation/screenshot")
+
+    def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
+        return self._get_json(f"/sessions/{session_id}/observation/amazon_auth_status")

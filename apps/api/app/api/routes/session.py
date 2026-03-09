@@ -29,7 +29,7 @@ from app.security import AuthenticatedUser, get_current_user_optional
 from app.schemas.agent_log import AgentLogEntry, AgentStepType
 from app.schemas.cart_context import CartSnapshot
 from app.schemas.control_state import CheckpointStatus, SensitiveCheckpointRequest
-from app.schemas.order_support import LatestOrderSnapshot
+from app.schemas.order_support import LatestOrderSnapshot, OrderCancellationResult
 from app.schemas.purchase_support import FinalPurchaseConfirmation
 from app.schemas.session_context import SessionContextSnapshot
 from app.schemas.session import Merchant, SessionCreate, SessionDetail, SessionSummary
@@ -517,6 +517,40 @@ def load_latest_order_snapshot_endpoint(
             detail="Latest order snapshot not available",
         )
     return refreshed.latest_order_snapshot
+
+
+@router.post(
+    "/{session_id}/orders/cancel",
+    response_model=OrderCancellationResult,
+)
+def cancel_latest_order_endpoint(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> OrderCancellationResult:
+    _require_existing_session(db, session_id, current_user=current_user)
+    payload = browser_client.cancel_latest_order(session_id=session_id)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Browser runtime did not return an order cancellation result",
+        )
+
+    try:
+        result = OrderCancellationResult.model_validate(payload)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Invalid order cancellation payload: {exc}",
+        ) from exc
+
+    _refresh_runtime_context(
+        db=db,
+        session_id=session_id,
+        browser_client=browser_client,
+    )
+    return result
 
 
 @router.get(

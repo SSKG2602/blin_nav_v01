@@ -1,56 +1,58 @@
 # Deployment
 
-## Current deployment surfaces
+## Target production topology
 
-This repo ships deployment assets for the runnable BlindNav stack:
+BlindNav is deployed as a three-service Google Cloud Run stack:
 
-- backend container image: `infra/docker/backend.Dockerfile`
-- frontend container image: `infra/docker/frontend.Dockerfile`
-- browser-runtime container image: `infra/docker/playwright.Dockerfile`
+- `blindnav-api`
+- `blindnav-browser-runtime`
+- `blindnav-web`
+
+Each service has its own container image and its own runtime concerns. The backend remains the orchestration source of truth, the browser-runtime remains the execution/observation boundary, and the frontend remains the operator shell.
+
+## Repo deployment assets
+
+This repo already ships the core deployment assets needed for that topology:
+
+- backend image: `infra/docker/backend.Dockerfile`
+- browser-runtime image: `infra/docker/playwright.Dockerfile`
+- frontend image: `infra/docker/frontend.Dockerfile`
 - backend Cloud Run template: `infra/cloudrun/service.yaml`
 - backend Cloud Run env sample: `infra/cloudrun/env.sample.yaml`
 - backend deploy helper: `infra/cloudrun/deploy.sh`
 
-## What is actually covered here
+The backend has first-class Cloud Run manifests in the repo today. The browser-runtime and frontend are documented as separate Cloud Run services built from the existing Dockerfiles and wired through environment configuration.
 
-The strongest deployment path in-repo is the backend service on Google Cloud Run. The frontend and browser runtime have Dockerfiles and can be containerized, but this repo does not pretend that a single command deploys the entire multi-service stack to production.
+## Service responsibilities
 
-## Backend Cloud Run deployment
+### `blindnav-api`
 
-Set the required variables locally:
+- FastAPI backend
+- deterministic orchestration and state transitions
+- auth, session history, checkpoints, final confirmation, logs, and closure artifacts
+- live websocket transport
+- Gemini 2.5 Flash-backed interpretation, summarization, and multimodal assistance
+- calls into the browser-runtime through `BROWSER_RUNTIME_BASE_URL`
 
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project
-export GOOGLE_CLOUD_REGION=your-region
-export IMAGE=your-image-reference
-```
+### `blindnav-browser-runtime`
 
-Then run:
+- Playwright browser service
+- merchant navigation, DOM interaction, screenshot capture, and observation extraction
+- cart, checkout, latest-order, and bounded cancellation actions
+- remains private to the backend-facing network surface where possible
 
-```bash
-./infra/cloudrun/deploy.sh
-```
+### `blindnav-web`
 
-The deploy script expects:
+- Next.js operator shell
+- live websocket session control
+- voice wake flow, browser-native speech capture, and browser-native spoken replies
+- browser activity panel, runtime visibility, checkpoint/final-confirmation UI, cart/order actions, and session history
 
-- `GOOGLE_CLOUD_PROJECT`
-- `GOOGLE_CLOUD_REGION`
-- `IMAGE`
-- optional `SERVICE_NAME`
-- optional `ENV_FILE` pointing to a Cloud Run env YAML
+## Environment wiring
 
-## Required environment and service dependencies
+### Backend
 
-At deployment time, ensure the backend has access to:
-
-- PostgreSQL
-- Redis
-- browser runtime base URL
-- Gemini credentials and model settings
-- allowed frontend origin
-- optional log bucket configuration
-
-Key settings already present in code and env examples:
+The backend service must be configured with:
 
 - `SERVICE_NAME`
 - `ENVIRONMENT`
@@ -67,28 +69,71 @@ Key settings already present in code and env examples:
 - `GOOGLE_CLOUD_REGION`
 - `LOG_BUCKET_NAME`
 
+The docs target Gemini 2.5 Flash as the deployed model family for those Gemini model variables.
+
+### Browser-runtime
+
+The browser-runtime service must:
+
+- expose port `8200`
+- be reachable from the backend at `BROWSER_RUNTIME_BASE_URL`
+- run in a trusted environment because it holds merchant browsing state
+- preserve screenshot and observation routes used by the frontend visibility layer through the backend
+
+### Frontend
+
+The frontend service must be configured with:
+
+- `NEXT_PUBLIC_API_BASE_URL`
+
+The deployed frontend origin must match the backend `FRONTEND_ORIGIN` CORS setting.
+
+## Cloud Run deployment shape
+
+### Backend
+
+The backend already has a repo-local Cloud Run template and env sample. A typical backend deploy still uses:
+
+```bash
+export GOOGLE_CLOUD_PROJECT=your-project
+export GOOGLE_CLOUD_REGION=your-region
+export IMAGE=your-backend-image
+./infra/cloudrun/deploy.sh
+```
+
+### Browser-runtime
+
+Deploy the browser-runtime as a separate Cloud Run service from `infra/docker/playwright.Dockerfile`, then point the backend `BROWSER_RUNTIME_BASE_URL` at the deployed runtime URL or a private internal address if you are using service-to-service networking.
+
+### Frontend
+
+Deploy the frontend as a separate Cloud Run service from `infra/docker/frontend.Dockerfile`, passing `NEXT_PUBLIC_API_BASE_URL` at build or deploy time so the shell points to the deployed backend.
+
 ## Runtime cautions
 
-- do not enable blind autonomous purchase placement without preserving existing checkpoint and final-confirmation behavior
-- keep browser-runtime networking and authentication scoped to the trusted deployment environment
-- keep frontend origin configuration aligned with the deployed shell host
-- do not treat docs-only configuration as deployment proof; verify live health endpoints and session flow after deployment
+- do not weaken checkpoints, final confirmation, or low-confidence behavior to simplify deployment
+- keep browser-runtime access scoped to the backend or trusted internal callers
+- keep merchant authentication and live order context within controlled environments
+- verify screenshot, observation, and websocket flows after deploy instead of treating container startup as proof
+- keep frontend and backend origins aligned so websocket and auth flows work correctly
 
 ## Suggested deployment verification
 
-After deploy, verify:
+After all three services are deployed, verify:
 
 - backend `GET /health`
+- backend `GET /health/live`
 - backend `GET /health/ready`
-- browser-runtime liveness
-- auth flow
-- live session creation
-- websocket connection from the deployed frontend
-- checkpoint and final-confirmation flow
+- browser-runtime `GET /health/live`
+- frontend shell can sign in and create a live session
+- websocket connection succeeds from the deployed frontend
+- wake flow, spoken reply playback, and browser activity panel behave correctly
+- Amazon connect status, latest-order loading, and bounded order cancellation remain reachable
+- checkpoint and final-confirmation paths still pause and resume correctly
 
 ## Containerized local preflight
 
-Before deploying remotely, validate the images locally:
+Before deploying remotely, validate the three-service stack locally:
 
 ```bash
 docker compose up --build

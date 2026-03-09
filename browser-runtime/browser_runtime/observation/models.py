@@ -42,3 +42,19 @@ class RuntimeScreenshotObservation(BaseModel):
     mime_type: str = "image/png"
     source: str = "runtime"
     notes: str | None = None
+
+
+class RuntimeAmazonAuthStatus(BaseModel):
+    connected: bool = False
+    cookie_count: int = 0
+    current_url: str | None = None
+    notes: str | None = None
+
+
+class RuntimeOrderCancellationResult(BaseModel):
+    cancelled: bool
+    cancellable: bool | None = None
+    order_card_title: str | None = None
+    shipping_stage_text: str | None = None
+    spoken_summary: str
+    notes: str | None = None

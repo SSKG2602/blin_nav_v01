@@ -12,6 +12,7 @@ from browser_runtime.automation import (
     AMAZON_ORDERS_URL,
     add_current_product_to_cart,
     action_guard,
+    attempt_cancel_latest_order,
     attempt_checkout_entry,
     dismiss_common_interruptions,
     extract_cart_evidence,
@@ -27,6 +28,7 @@ from browser_runtime.automation import (
 )
 from browser_runtime.config import settings
 from browser_runtime.driver import browser_session_manager
+from browser_runtime.observation.models import RuntimeOrderCancellationResult
 
 logger = logging.getLogger(__name__)
 
@@ -538,6 +540,39 @@ def navigate_orders_history(
     except Exception as exc:
         logger.error("navigate_orders_history failed for session %s: %s", session_id, exc)
     return _accepted_response()
+
+
+@router.post(
+    "/{session_id}/actions/cancel_latest_order",
+    response_model=RuntimeOrderCancellationResult,
+)
+def cancel_latest_order(
+    session_id: UUID,
+    payload: EmptyActionRequest = Body(default_factory=EmptyActionRequest),
+) -> RuntimeOrderCancellationResult:
+    _log_action("cancel_latest_order", session_id)
+    try:
+        page = browser_session_manager.get_page(session_id)
+        notes = dismiss_common_interruptions(page)
+        result = attempt_cancel_latest_order(page)
+        existing_notes = str(result.get("notes") or "").strip()
+        combined_notes = ", ".join(
+            note for note in [", ".join(notes) if notes else None, existing_notes or None] if note
+        )
+        payload = {
+            **result,
+            "notes": combined_notes or None,
+        }
+        logger.info("cancel_latest_order_summary %s", {"session_id": str(session_id), **payload})
+        return RuntimeOrderCancellationResult.model_validate(payload)
+    except Exception as exc:
+        logger.error("cancel_latest_order failed for session %s: %s", session_id, exc)
+        return RuntimeOrderCancellationResult(
+            cancelled=False,
+            cancellable=False,
+            spoken_summary="I could not determine whether the latest order can be cancelled right now.",
+            notes=str(exc),
+        )
 
 
 @router.post("/{session_id}/actions/handle_error_recovery", status_code=status.HTTP_204_NO_CONTENT)

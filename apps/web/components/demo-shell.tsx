@@ -54,8 +54,19 @@ export function DemoShell() {
     demo.context?.latest_multimodal_assessment?.recommended_next_step ??
     demo.context?.latest_multimodal_assessment?.decision ??
     "No recommended step yet";
-  const micDisabled =
-    !demo.connected || (!demo.listening && !demo.speechSupported && !demo.audioCaptureSupported);
+  const micDisabled = !demo.connected || !demo.speechSupported;
+  const micTooltip = !demo.speechSupported
+    ? "Voice recognition requires Chrome or Edge browser"
+    : !demo.connected
+      ? 'Click "Wake Luminar" first to start the live session.'
+      : demo.listening
+        ? "Stop voice capture"
+        : "Start voice capture";
+  const wakeButtonLabel = demo.wakeActive
+    ? "Luminar Awake"
+    : demo.wakePhraseEnabled
+      ? 'Listening for "Luminar"...'
+      : "Wake Luminar";
 
   const statusTone = useMemo(() => {
     if (lowConfidenceActive) {
@@ -202,6 +213,28 @@ export function DemoShell() {
                 </button>
               </div>
             )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                onClick={demo.connectAmazonIn}
+                disabled={!demo.sessionId || demo.amazonAuthBusy || demo.amazonConnected}
+              >
+                {demo.amazonAuthBusy
+                  ? "Connecting Amazon..."
+                  : demo.amazonConnected
+                    ? "Amazon Connected ✓"
+                    : "Connect Amazon.in"}
+              </button>
+              <p className="text-sm text-slate-600">
+                {demo.amazonConnected
+                  ? "Amazon Connected ✓"
+                  : demo.amazonAuthNote ??
+                    (demo.sessionId
+                      ? "Bind Amazon login to the active BlindNav session."
+                      : "Start a live session to bind Amazon login.")}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -226,12 +259,12 @@ export function DemoShell() {
               <button
                 type="button"
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-                onClick={demo.startLiveSession}
-                disabled={demo.connecting || demo.connected}
+                onClick={demo.startWakeSequence}
+                disabled={demo.connecting || demo.wakePhraseEnabled || demo.wakeActive}
               >
-                {demo.wakeActive ? "Luminar Awake" : "Wake Luminar"}
+                {wakeButtonLabel}
               </button>
-              <div className="flex items-center justify-center md:justify-start">
+              <div className="flex items-center justify-center md:justify-start" title={micTooltip}>
                 <VoiceMicButton
                   listening={demo.listening}
                   disabled={micDisabled}
@@ -251,19 +284,16 @@ export function DemoShell() {
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Speech recognition: {demo.speechSupported ? "available" : "unavailable"}
               </span>
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 ${demo.wakePhraseEnabled ? "bg-teal-100 text-teal-900" : "bg-slate-100"}`}
-                onClick={() => demo.setWakePhraseEnabled(!demo.wakePhraseEnabled)}
-                disabled={!demo.speechSupported || demo.connected || demo.connecting}
+              <span
+                className={`rounded-full px-3 py-1 ${demo.wakeActive ? "bg-emerald-100 text-emerald-900" : demo.wakePhraseEnabled ? "bg-teal-100 text-teal-900" : "bg-slate-100"}`}
               >
-                Wake phrase: {demo.wakePhraseEnabled ? "armed" : "off"}
-              </button>
+                Wake phrase: {demo.wakeActive ? "detected" : demo.wakePhraseEnabled ? "listening" : "idle"}
+              </span>
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Audio capture: {demo.audioCaptureSupported ? "available" : "unavailable"}
               </span>
               <span className="rounded-full bg-slate-100 px-3 py-1">
-                Playback: {demo.speaking ? "speaking" : "idle"}
+                Playback: {demo.speaking ? "Speaking..." : "idle"}
               </span>
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Voice capture: {demo.listening ? "listening" : "idle"}
@@ -277,6 +307,11 @@ export function DemoShell() {
                 Cancel Session
               </button>
             </div>
+            {demo.voiceSupportMessage ? (
+              <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {demo.voiceSupportMessage}
+              </p>
+            ) : null}
           </article>
 
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
@@ -567,6 +602,30 @@ export function DemoShell() {
           </article>
 
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
+            <h2 className="text-lg font-semibold">Browser Activity</h2>
+            <p className="mt-2 text-sm text-slate-600">{demo.browserActivityStatus}</p>
+            <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+              {demo.runtimeScreenshot?.image_base64 ? (
+                <img
+                  src={`data:${demo.runtimeScreenshot.mime_type};base64,${demo.runtimeScreenshot.image_base64}`}
+                  alt="Live browser activity"
+                  className="h-auto w-full object-cover"
+                />
+              ) : (
+                <div className="flex min-h-48 items-center justify-center px-4 py-6 text-sm text-slate-500">
+                  {demo.runtimeScreenshot?.notes ?? "Waiting for the live browser thumbnail."}
+                </div>
+              )}
+            </div>
+            <p className="mt-3 text-sm text-slate-700">
+              URL: {demo.runtimeObservation?.observed_url ?? "n/a"}
+            </p>
+            {demo.runtimeScreenshot?.notes ? (
+              <p className="mt-1 text-xs text-slate-500">{demo.runtimeScreenshot.notes}</p>
+            ) : null}
+          </article>
+
+          <article className="rounded-3xl border border-slate-300 bg-white p-5">
             <h2 className="text-lg font-semibold">Cart Context</h2>
             {cartSnapshot?.items?.length ? (
               <div className="mt-3 space-y-3">
@@ -638,14 +697,26 @@ export function DemoShell() {
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Latest Order Snapshot</h2>
-              <button
-                type="button"
-                className="rounded-xl border border-slate-300 px-3 py-1 text-xs"
-                onClick={demo.fetchLatestOrderSnapshot}
-                disabled={!demo.sessionId}
-              >
-                Load Latest Order
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-300 px-3 py-1 text-xs"
+                  onClick={demo.fetchLatestOrderSnapshot}
+                  disabled={!demo.sessionId}
+                >
+                  Load Latest Order
+                </button>
+                {(postPurchase || latestOrder) ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 disabled:border-slate-200 disabled:text-slate-400"
+                    onClick={demo.cancelPlacedOrder}
+                    disabled={!demo.sessionId || demo.orderCancelBusy}
+                  >
+                    {demo.orderCancelBusy ? "Cancelling..." : "Cancel Latest Order"}
+                  </button>
+                ) : null}
+              </div>
             </div>
             {latestOrder ? (
               <div className="mt-3 space-y-1 text-sm text-slate-700">

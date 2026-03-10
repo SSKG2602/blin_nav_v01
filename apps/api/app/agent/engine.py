@@ -28,6 +28,9 @@ from app.schemas.agent_log import AgentLogEntry, AgentStepType
 from app.schemas.review_analysis import ReviewConflictLevel
 from app.schemas.trust_verification import TrustStatus
 
+_LAST_RETRYABLE_SEARCH_PAYLOAD: dict[UUID, dict[str, object | None]] = {}
+_RECOVERY_RETRY_COUNT: dict[UUID, int] = {}
+
 
 def _build_log(
     *,
@@ -89,6 +92,120 @@ def _halt_transition(
         log_entries=[log_entry],
         spoken_summary=log_entry.user_spoken_summary,
         debug_notes=reason,
+    )
+
+
+def _cache_retryable_search_payload(
+    *,
+    session_id: UUID,
+    intent: str | None,
+    query: str | None,
+    merchant: object | None,
+) -> None:
+    _LAST_RETRYABLE_SEARCH_PAYLOAD[session_id] = {
+        "intent": intent or "search_products",
+        "query": query,
+        "merchant": merchant,
+    }
+
+
+def _get_retryable_search_payload(session_id: UUID) -> dict[str, object | None] | None:
+    payload = _LAST_RETRYABLE_SEARCH_PAYLOAD.get(session_id)
+    if not payload:
+        return None
+    return dict(payload)
+
+
+def _reset_recovery_retry_count(session_id: UUID) -> None:
+    _RECOVERY_RETRY_COUNT.pop(session_id, None)
+
+
+def _clear_recovery_tracking(session_id: UUID) -> None:
+    _RECOVERY_RETRY_COUNT.pop(session_id, None)
+    _LAST_RETRYABLE_SEARCH_PAYLOAD.pop(session_id, None)
+
+
+def _recovery_retry_or_close_transition(
+    *,
+    session_id: UUID,
+    current_state: AgentState,
+    error_type: str,
+    reason: str | None,
+) -> AgentTransitionResult:
+    retry_count = _RECOVERY_RETRY_COUNT.get(session_id, 0) + 1
+    _RECOVERY_RETRY_COUNT[session_id] = retry_count
+
+    if retry_count > 3:
+        _clear_recovery_tracking(session_id)
+        command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        log_entry = _build_log(
+            session_id=session_id,
+            step_type=AgentStepType.ERROR,
+            state_before=current_state,
+            state_after=AgentState.SESSION_CLOSING,
+            tool_name="agent.recovery",
+            tool_input_excerpt=f"recovery_retry_limit={retry_count}",
+            tool_output_excerpt=reason or "Recovery retry limit exceeded.",
+            error_type=error_type,
+            error_message=reason or "Recovery retry limit exceeded.",
+            user_spoken_summary="I'm having trouble accessing the page. Please try again in a moment.",
+        )
+        return AgentTransitionResult(
+            new_state=AgentState.SESSION_CLOSING,
+            commands=[command],
+            log_entries=[log_entry],
+            spoken_summary=log_entry.user_spoken_summary,
+            debug_notes="Recovery retry limit exceeded.",
+        )
+
+    payload = _get_retryable_search_payload(session_id)
+    if payload is not None:
+        command = AgentCommand(
+            type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS,
+            payload=payload,
+        )
+        log_entry = _build_log(
+            session_id=session_id,
+            step_type=AgentStepType.ERROR,
+            state_before=current_state,
+            state_after=AgentState.ERROR_RECOVERY,
+            tool_name="agent.recovery",
+            tool_input_excerpt=f"recovery_retry={retry_count}",
+            tool_output_excerpt=reason or "Retrying search from cached intent.",
+            error_type=error_type,
+            error_message=reason,
+            user_spoken_summary="I lost the page. I'm retrying your search.",
+        )
+        return AgentTransitionResult(
+            new_state=AgentState.ERROR_RECOVERY,
+            commands=[command],
+            log_entries=[log_entry],
+            spoken_summary=log_entry.user_spoken_summary,
+            debug_notes="Recovery is retrying the cached search intent.",
+        )
+
+    command = AgentCommand(
+        type=AgentCommandType.HANDLE_ERROR_RECOVERY,
+        payload={"error_type": error_type},
+    )
+    log_entry = _build_log(
+        session_id=session_id,
+        step_type=AgentStepType.ERROR,
+        state_before=current_state,
+        state_after=AgentState.ERROR_RECOVERY,
+        tool_name="agent.recovery",
+        tool_input_excerpt=f"recovery_retry={retry_count}",
+        tool_output_excerpt=reason or "No cached search intent available; running generic recovery.",
+        error_type=error_type,
+        error_message=reason,
+        user_spoken_summary="I am running a recovery step to stabilize the flow.",
+    )
+    return AgentTransitionResult(
+        new_state=AgentState.ERROR_RECOVERY,
+        commands=[command],
+        log_entries=[log_entry],
+        spoken_summary=log_entry.user_spoken_summary,
+        debug_notes="Recovery fallback used without cached search intent.",
     )
 
 
@@ -159,53 +276,19 @@ def next_state(
         )
 
     if isinstance(event, ToolError):
-        error_command = AgentCommand(
-            type=AgentCommandType.HANDLE_ERROR_RECOVERY,
-            payload={"error_type": event.error_type},
-        )
-        error_log = _build_log(
+        return _recovery_retry_or_close_transition(
             session_id=session_id,
-            step_type=AgentStepType.ERROR,
-            state_before=current_state,
-            state_after=AgentState.ERROR_RECOVERY,
-            tool_name="agent.tool_adapter",
-            tool_input_excerpt="tool_error",
-            tool_output_excerpt=event.error_message,
+            current_state=current_state,
             error_type=event.error_type,
-            error_message=event.error_message,
-            user_spoken_summary="I hit a tool error and I am entering recovery.",
-        )
-        return AgentTransitionResult(
-            new_state=AgentState.ERROR_RECOVERY,
-            commands=[error_command],
-            log_entries=[error_log],
-            spoken_summary=error_log.user_spoken_summary,
-            debug_notes="Tool error routed to recovery.",
+            reason=event.error_message,
         )
 
     if isinstance(event, RecoveryTriggered):
-        recovery_command = AgentCommand(
-            type=AgentCommandType.HANDLE_ERROR_RECOVERY,
-            payload={"error_type": event.reason or "recovery_triggered"},
-        )
-        recovery_log = _build_log(
+        return _recovery_retry_or_close_transition(
             session_id=session_id,
-            step_type=AgentStepType.ERROR,
-            state_before=current_state,
-            state_after=AgentState.ERROR_RECOVERY,
-            tool_name="agent.recovery",
-            tool_input_excerpt="recovery_triggered",
-            tool_output_excerpt=event.reason,
+            current_state=current_state,
             error_type="recovery_triggered",
-            error_message=event.reason,
-            user_spoken_summary="I am running a recovery step to stabilize the flow.",
-        )
-        return AgentTransitionResult(
-            new_state=AgentState.ERROR_RECOVERY,
-            commands=[recovery_command],
-            log_entries=[recovery_log],
-            spoken_summary=recovery_log.user_spoken_summary,
-            debug_notes="Recovery event routed to recovery state.",
+            reason=event.reason,
         )
 
     if current_state == AgentState.DONE:
@@ -226,6 +309,13 @@ def next_state(
         )
 
     if current_state == AgentState.SESSION_INITIALIZING and isinstance(event, UserIntentParsed):
+        _cache_retryable_search_payload(
+            session_id=session_id,
+            intent=event.intent,
+            query=event.query,
+            merchant=event.merchant,
+        )
+        _reset_recovery_retry_count(session_id)
         command = AgentCommand(
             type=AgentCommandType.RUN_TRUST_CHECK,
             payload={"intent": event.intent, "query": event.query, "merchant": event.merchant},
@@ -250,6 +340,13 @@ def next_state(
 
     if current_state == AgentState.CLARIFICATION_REQUIRED and isinstance(event, ClarificationResolved):
         if event.follow_up_query or event.follow_up_intent:
+            _cache_retryable_search_payload(
+                session_id=session_id,
+                intent=event.follow_up_intent or "search_products",
+                query=event.follow_up_query,
+                merchant=event.merchant,
+            )
+            _reset_recovery_retry_count(session_id)
             command = AgentCommand(
                 type=AgentCommandType.RUN_TRUST_CHECK,
                 payload={
@@ -388,6 +485,7 @@ def next_state(
             )
 
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,
@@ -791,6 +889,7 @@ def next_state(
             )
 
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.CHECKOUT,
@@ -835,6 +934,7 @@ def next_state(
             )
 
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.CHECKOUT,
@@ -876,6 +976,7 @@ def next_state(
             )
 
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,
@@ -896,7 +997,12 @@ def next_state(
 
     if current_state == AgentState.ERROR_RECOVERY and isinstance(event, NavResult):
         if event.success:
-            command = AgentCommand(type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS)
+            _reset_recovery_retry_count(session_id)
+            payload = _get_retryable_search_payload(session_id) or {}
+            command = AgentCommand(
+                type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS,
+                payload=payload,
+            )
             log_entry = _build_log(
                 session_id=session_id,
                 step_type=AgentStepType.NAVIGATION,
@@ -915,15 +1021,20 @@ def next_state(
                 debug_notes="Recovery succeeded.",
             )
 
-        return _halt_transition(
+        return _recovery_retry_or_close_transition(
             session_id=session_id,
             current_state=current_state,
+            error_type="recovery_retry_failed",
             reason="Recovery retry failed.",
         )
 
     if current_state == AgentState.UI_STABILIZING and isinstance(event, NavResult):
         if event.success and (event.confidence is None or event.confidence >= 0.4):
-            command = AgentCommand(type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS)
+            _reset_recovery_retry_count(session_id)
+            command = AgentCommand(
+                type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS,
+                payload=_get_retryable_search_payload(session_id) or {},
+            )
             log_entry = _build_log(
                 session_id=session_id,
                 step_type=AgentStepType.NAVIGATION,
@@ -942,34 +1053,18 @@ def next_state(
                 debug_notes="UI stabilization complete.",
             )
 
-        command = AgentCommand(
-            type=AgentCommandType.HANDLE_ERROR_RECOVERY,
-            payload={"error_type": "ui_stabilization_failed"},
-        )
-        log_entry = _build_log(
+        return _recovery_retry_or_close_transition(
             session_id=session_id,
-            step_type=AgentStepType.ERROR,
-            state_before=current_state,
-            state_after=AgentState.ERROR_RECOVERY,
-            tool_name="agent.ui_stabilizer",
-            tool_input_excerpt="ui_stabilization_failed",
-            tool_output_excerpt="UI stabilization failed; returning to recovery.",
+            current_state=current_state,
             error_type="ui_stabilization_failed",
-            error_message="UI stabilization failed.",
-            user_spoken_summary="UI stabilization failed. Returning to recovery.",
-        )
-        return AgentTransitionResult(
-            new_state=AgentState.ERROR_RECOVERY,
-            commands=[command],
-            log_entries=[log_entry],
-            spoken_summary=log_entry.user_spoken_summary,
-            debug_notes="UI stabilization failed.",
+            reason="UI stabilization failed.",
         )
 
     if current_state == AgentState.LOW_CONFIDENCE_HALT and isinstance(
         event, SessionCloseRequested
     ):
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,
@@ -992,6 +1087,7 @@ def next_state(
         event, SessionCloseRequested
     ):
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,
@@ -1014,6 +1110,7 @@ def next_state(
         event, SessionCloseRequested
     ):
         command = AgentCommand(type=AgentCommandType.CLOSE_SESSION)
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,
@@ -1033,6 +1130,7 @@ def next_state(
         )
 
     if current_state == AgentState.SESSION_CLOSING and isinstance(event, SessionCloseRequested):
+        _clear_recovery_tracking(session_id)
         log_entry = _build_log(
             session_id=session_id,
             step_type=AgentStepType.META,

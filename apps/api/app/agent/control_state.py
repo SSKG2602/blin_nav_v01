@@ -139,8 +139,12 @@ def derive_low_confidence_status(
         )
 
     active = bool(
-        multimodal_assessment.decision == MultimodalDecision.HALT_LOW_CONFIDENCE
-        or multimodal_assessment.should_halt_low_confidence
+        (
+            multimodal_assessment.decision == MultimodalDecision.HALT_LOW_CONFIDENCE
+            or multimodal_assessment.should_halt_low_confidence
+        )
+        and multimodal_assessment.confidence is not None
+        and multimodal_assessment.confidence < 0.15
     )
     if not active:
         return LowConfidenceStatus(
@@ -222,7 +226,7 @@ def derive_recovery_status(
             last_updated_at=now,
         )
 
-    if page is not None and page.page_type == PageType.UNKNOWN and page.confidence < 0.35:
+    if page is not None and page.page_type == PageType.UNKNOWN and page.confidence < 0.15:
         return RecoveryStatus(
             active=True,
             recovery_kind=RecoveryKind.PAGE_DESYNC,

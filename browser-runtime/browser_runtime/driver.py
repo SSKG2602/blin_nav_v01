@@ -230,10 +230,26 @@ class BrowserSessionManager:
         self._pages: Dict[UUID, Page | DummyPage] = {}
         self._navigating: Dict[UUID, bool] = {}
 
+    def _is_browser_healthy(self) -> bool:
+        try:
+            if self._browser is None:
+                return False
+            _ = self._browser.contexts
+            return True
+        except Exception:
+            return False
+
     def _ensure_browser_started(self) -> None:
         with self._lock:
             if self._playwright_started:
-                return
+                if self._is_browser_healthy():
+                    return
+                logger.warning("Browser crashed, restarting...")
+                self._playwright_started = False
+                self._browser = None
+                self._pages.clear()
+                self._contexts.clear()
+                self._navigating.clear()
 
             if sync_playwright is None:
                 logger.warning("Playwright not available; running in no-op mode.")
@@ -252,7 +268,6 @@ class BrowserSessionManager:
                         "--disable-setuid-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-gpu",
-                        "--single-process",
                         "--no-zygote",
                     ],
                 )
@@ -279,11 +294,21 @@ class BrowserSessionManager:
             self._pages[session_id] = page
             return page
 
-        context = self._browser.new_context()
-        page = context.new_page()
-        self._contexts[session_id] = context
-        self._pages[session_id] = page
-        return page
+        try:
+            context = self._browser.new_context()
+            page = context.new_page()
+            self._contexts[session_id] = context
+            self._pages[session_id] = page
+            return page
+        except Exception as exc:
+            logger.error("Failed to create page, browser may have crashed: %s", exc)
+            self._playwright_started = False
+            self._browser = None
+            self._contexts.pop(session_id, None)
+            self._pages.pop(session_id, None)
+            page = DummyPage(session_id)
+            self._pages[session_id] = page
+            return page
 
     def get_page(self, session_id: UUID) -> Page | DummyPage:
         def _run() -> Page | DummyPage:
@@ -308,6 +333,7 @@ class BrowserSessionManager:
         self._executor.submit(_run).result()
 
     def get_current_url(self, session_id: UUID) -> str | None:
+        self.wait_for_navigation_complete(session_id)
         with self._lock:
             if self._navigating.get(session_id):
                 return "navigating"
@@ -324,6 +350,7 @@ class BrowserSessionManager:
         return self._executor.submit(_run).result()
 
     def get_current_page_observation(self, session_id: UUID) -> dict[str, Any]:
+        self.wait_for_navigation_complete(session_id)
         with self._lock:
             if self._navigating.get(session_id):
                 return _navigating_observation_payload()
@@ -337,6 +364,15 @@ class BrowserSessionManager:
             return extract_current_page_observation(page).model_dump()
 
         return self._executor.submit(_run).result()
+
+    def wait_for_navigation_complete(self, session_id: UUID, timeout_seconds: int = 15) -> None:
+        import time
+
+        start = time.time()
+        while self._navigating.get(session_id, False):
+            if time.time() - start > timeout_seconds:
+                break
+            time.sleep(0.3)
 
     def get_page_screenshot(self, session_id: UUID) -> dict[str, Any]:
         with self._lock:

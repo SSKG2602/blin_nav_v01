@@ -16,7 +16,13 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
     def __init__(self, *, base_url: str, timeout_seconds: float = 10.0):
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
-        self._timeout = httpx.Timeout(read=30.0, connect=5.0, write=5.0, pool=5.0)
+        self._timeout = httpx.Timeout(connect=5.0, write=5.0, pool=5.0, read=30.0)
+        self._screenshot_timeout = httpx.Timeout(
+            connect=5.0,
+            write=5.0,
+            pool=5.0,
+            read=90.0,
+        )
 
     def _post(self, path: str, payload: dict[str, Any]) -> None:
         try:
@@ -72,9 +78,12 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             return {}
         return payload_json if isinstance(payload_json, dict) else {}
 
-    def _get_json(self, path: str) -> dict[str, Any]:
+    def _get_json(self, path: str, *, timeout: httpx.Timeout | None = None) -> dict[str, Any]:
         try:
-            with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
+            with httpx.Client(
+                base_url=self._base_url,
+                timeout=timeout or self._timeout,
+            ) as client:
                 response = client.get(path)
         except Exception as exc:
             logger.warning(
@@ -280,7 +289,10 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
         return self._get_json(f"/sessions/{session_id}/observation/current_page")
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
-        return self._get_json(f"/sessions/{session_id}/observation/screenshot")
+        return self._get_json(
+            f"/sessions/{session_id}/observation/screenshot",
+            timeout=self._screenshot_timeout,
+        )
 
     def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
         return self._get_json(f"/sessions/{session_id}/observation/amazon_auth_status")

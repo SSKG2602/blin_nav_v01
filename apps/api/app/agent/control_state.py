@@ -144,7 +144,7 @@ def derive_low_confidence_status(
             or multimodal_assessment.should_halt_low_confidence
         )
         and multimodal_assessment.confidence is not None
-        and multimodal_assessment.confidence < 0.15
+        and multimodal_assessment.confidence < 0.35
     )
     if not active:
         return LowConfidenceStatus(

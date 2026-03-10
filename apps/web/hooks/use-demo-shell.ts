@@ -84,7 +84,9 @@ function stripSpokenPrefix(text: string, locale: string): string {
     return "";
   }
 
-  const prefixes = locale === "hi-IN" ? ["सारांश: ", "Summary: "] : ["Summary: ", "सारांश: "];
+  const prefixes = locale === "hi-IN"
+    ? ["सारांश: ", "Summary: ", "spoken_prefix"]
+    : ["Summary: ", "सारांश: ", "spoken_prefix"];
   for (const prefix of prefixes) {
     if (trimmed.startsWith(prefix)) {
       return trimmed.slice(prefix.length).trim();

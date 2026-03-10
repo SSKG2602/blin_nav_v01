@@ -20,6 +20,38 @@ except ImportError:  # Playwright not installed
 logger = logging.getLogger(__name__)
 
 
+def _navigating_observation_payload() -> dict[str, Any]:
+    return {
+        "observed_url": "navigating",
+        "page_title": None,
+        "detected_page_hints": ["navigating"],
+        "product_candidates": [],
+        "primary_product": None,
+        "cart_items": [],
+        "cart_item_count": None,
+        "checkout_ready": None,
+        "order_id_hint": None,
+        "order_date_text": None,
+        "shipping_stage_text": None,
+        "expected_delivery_text": None,
+        "order_total_text": None,
+        "order_card_title": None,
+        "orders_page_url": None,
+        "support_entry_hint": None,
+        "returns_entry_hint": None,
+        "notes": "Navigation in progress.",
+    }
+
+
+def _navigating_screenshot_payload() -> dict[str, Any]:
+    return {
+        "image_base64": None,
+        "mime_type": "image/png",
+        "source": "runtime",
+        "notes": "Navigation in progress.",
+    }
+
+
 def _normalize_same_site(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -196,6 +228,7 @@ class BrowserSessionManager:
         self._browser: Browser | None = None
         self._contexts: Dict[UUID, BrowserContext] = {}
         self._pages: Dict[UUID, Page | DummyPage] = {}
+        self._navigating: Dict[UUID, bool] = {}
 
     def _ensure_browser_started(self) -> None:
         with self._lock:
@@ -275,6 +308,10 @@ class BrowserSessionManager:
         self._executor.submit(_run).result()
 
     def get_current_url(self, session_id: UUID) -> str | None:
+        with self._lock:
+            if self._navigating.get(session_id):
+                return "navigating"
+
         def _run() -> str | None:
             self._ensure_browser_started()
             if session_id in self._pages:
@@ -287,6 +324,10 @@ class BrowserSessionManager:
         return self._executor.submit(_run).result()
 
     def get_current_page_observation(self, session_id: UUID) -> dict[str, Any]:
+        with self._lock:
+            if self._navigating.get(session_id):
+                return _navigating_observation_payload()
+
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
             if session_id in self._pages:
@@ -298,6 +339,10 @@ class BrowserSessionManager:
         return self._executor.submit(_run).result()
 
     def get_page_screenshot(self, session_id: UUID) -> dict[str, Any]:
+        with self._lock:
+            if self._navigating.get(session_id):
+                return _navigating_screenshot_payload()
+
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
             if session_id in self._pages:
@@ -361,6 +406,13 @@ class BrowserSessionManager:
         return self._executor.submit(_run).result()
 
     def set_session_cookies(self, session_id: UUID, cookies_list: list[Any]) -> None:
+        normalized_cookies = [_normalize_cookie_payload(cookie) for cookie in cookies_list]
+        if not normalized_cookies:
+            raise ValueError("No cookies were provided.")
+
+        with self._lock:
+            self._navigating[session_id] = True
+
         def _run() -> None:
             self._ensure_browser_started()
             if session_id not in self._pages:
@@ -370,19 +422,27 @@ class BrowserSessionManager:
             if context is None:
                 raise RuntimeError("No Playwright browser context is available for this session.")
 
-            normalized_cookies = [_normalize_cookie_payload(cookie) for cookie in cookies_list]
-            if not normalized_cookies:
-                raise ValueError("No cookies were provided.")
-
             add_cookies_fn = getattr(context, "add_cookies", None)
             if not callable(add_cookies_fn):
                 raise RuntimeError("Browser context does not support cookie injection.")
 
-            page.goto("https://www.amazon.in", wait_until="domcontentloaded", timeout=30000)
-            add_cookies_fn(normalized_cookies)
-            page.reload(wait_until="domcontentloaded")
+            try:
+                page.goto("https://www.amazon.in", wait_until="domcontentloaded", timeout=30000)
+                add_cookies_fn(normalized_cookies)
+                page.reload(wait_until="domcontentloaded")
+            except Exception:
+                logger.exception("Asynchronous Amazon cookie navigation failed for session %s", session_id)
+                raise
+            finally:
+                with self._lock:
+                    self._navigating[session_id] = False
 
-        self._executor.submit(_run).result()
+        try:
+            self._executor.submit(_run)
+        except Exception:
+            with self._lock:
+                self._navigating[session_id] = False
+            raise
 
     def close_session(self, session_id: UUID) -> None:
         def _run() -> None:

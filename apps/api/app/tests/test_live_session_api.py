@@ -108,6 +108,8 @@ class FakeLLMClient:
     def __init__(self) -> None:
         self.multimodal_decision = MultimodalDecision.PROCEED
 
+    def score_product_candidates(self, *, query, candidates): return None
+
     def interpret_user_intent(self, utterance: str) -> InterpretedUserIntent:
         return InterpretedUserIntent(
             raw_utterance=utterance,

@@ -230,6 +230,8 @@ class FakeLLMClient:
     def __init__(self) -> None:
         self.multimodal_decision = MultimodalDecision.PROCEED
 
+    def score_product_candidates(self, *, query, candidates): return None
+
     def summarize_page_and_verification(self, page, verification) -> str:
         return "Fallback summary from fake llm."
 

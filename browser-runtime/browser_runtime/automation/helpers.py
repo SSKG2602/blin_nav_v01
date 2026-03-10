@@ -957,13 +957,15 @@ def choose_best_product_candidate(
     candidates: list[dict[str, Any]],
     *,
     query: str | None = None,
-) -> dict[str, Any] | None:
+    return_scores: bool = False,
+) -> dict[str, Any] | None | tuple[dict[str, Any] | None, list[tuple[int, dict[str, Any]]]]:
     import re as _re
 
     best: dict[str, Any] | None = None
     best_score = -10_000
     query_tokens: list[str] = []
     size_tokens: list[str] = []
+    _scored_list: list[tuple[int, dict[str, Any]]] = []
     if query:
         q_lower = query.lower()
         size_tokens = _re.findall(r"\d+\s*(?:kg|g|ml|l|gm|ltr|litre|pack|pcs|pc)\b", q_lower)
@@ -995,19 +997,48 @@ def choose_best_product_candidate(
                 if token in title:
                     score += 3
         if size_tokens:
-            matched_size = any(size_token in title for size_token in size_tokens)
+            _title_nospace = _re.sub(r"\s+", "", title)
+            matched_size = any(
+                _re.sub(r"\s+", "", s) in _title_nospace
+                for s in size_tokens
+            )
             if matched_size:
                 score += 5
             else:
                 score -= 2
 
+        _scored_list.append((score, candidate))
+
         if score > best_score:
             best_score = score
             best = candidate
 
+    scored: list[tuple[int, dict[str, Any]]] = sorted(
+        _scored_list,
+        key=lambda x: x[0],
+        reverse=True,
+    )
+
     if best is None or best_score <= 0:
+        if return_scores:
+            return None, scored
         return None
+    if return_scores:
+        return best, scored
     return best
+
+
+def _is_score_tie(
+    scored: list[tuple[int, dict[str, Any]]],
+    threshold: int = 2,
+) -> bool:
+    """
+    Returns True if the top 2 candidates are within `threshold` points.
+    Used by the caller to decide whether to invoke Gemini for tie-breaking.
+    """
+    if len(scored) < 2:
+        return False
+    return abs(scored[0][0] - scored[1][0]) <= threshold
 
 
 def open_best_search_result(

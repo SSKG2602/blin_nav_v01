@@ -99,6 +99,8 @@ class ScenarioLLMClient:
         self.summary_text = "Deterministic scenario summary."
         self._decisions: list[MultimodalDecision] = [MultimodalDecision.PROCEED]
 
+    def score_product_candidates(self, *, query, candidates): return None
+
     def queue_decisions(self, decisions: list[MultimodalDecision]) -> None:
         self._decisions = list(decisions) if decisions else [MultimodalDecision.PROCEED]
 

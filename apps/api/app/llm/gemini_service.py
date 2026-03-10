@@ -436,6 +436,90 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
             return parsed
         return self._fallback_intent(utterance_clean, "Fallback intent parse: Gemini unavailable.")
 
+    def score_product_candidates(
+        self,
+        *,
+        query: str,
+        candidates: list[dict[str, object]],
+    ) -> int | None:
+        """
+        Uses Gemini to pick the best candidate when regex scoring produces a tie.
+        Designed to be fast: compact prompt, structured JSON output, no retries.
+        Returns 0-based index or None on any failure.
+        """
+        try:
+            if not candidates:
+                return None
+            if len(candidates) == 1:
+                return 0
+            if self._gemini_client is None:
+                return None
+
+            lines: list[str] = []
+            for i, candidate in enumerate(candidates):
+                title = str(candidate.get("title") or "Unknown product")
+                price = str(candidate.get("price_text") or "price unknown")
+                lines.append(f'{i}: "{title}" — {price}')
+            candidates_text = "\n".join(lines)
+
+            prompt = (
+                "You are a product selection assistant for a blind user's voice shopping app.\n"
+                f'The user asked for: "{query}"\n'
+                "Choose the single best matching product from the numbered list below.\n\n"
+                "Rules (apply in order):\n"
+                "1. Match brand exactly if the query specifies a brand.\n"
+                "2. Match size/weight exactly if specified. Treat '3kg', '3 kg', '3000g' as equivalent.\n"
+                "3. Prefer adult/standard variants over puppy/junior/baby unless the query specifies otherwise.\n"
+                "4. Prefer the more common pack size when ambiguous.\n"
+                "5. Never pick a sponsored, unrelated, or clearly wrong product.\n\n"
+                "Candidates:\n"
+                f"{candidates_text}\n\n"
+                "Respond with ONLY valid JSON and nothing else:\n"
+                '{"best_index": <integer>, "reason": "<one short sentence>"}\n'
+            )
+
+            text = self._generate_text(model=self._intent_model, prompt=prompt)
+            if not text:
+                logger.warning("score_product_candidates: Gemini returned empty text")
+                return None
+
+            payload = _extract_first_json_object(text)
+            if payload is None:
+                logger.warning(
+                    "score_product_candidates: could not parse JSON from response: %s",
+                    text[:300],
+                )
+                return None
+
+            try:
+                index = int(payload["best_index"])
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "score_product_candidates: bad best_index in payload=%s error=%s",
+                    payload,
+                    exc,
+                )
+                return None
+
+            if index < 0 or index >= len(candidates):
+                logger.warning(
+                    "score_product_candidates: index %d out of range for %d candidates",
+                    index,
+                    len(candidates),
+                )
+                return None
+
+            logger.info(
+                "score_product_candidates gemini_pick index=%d reason=%s query=%s",
+                index,
+                payload.get("reason", ""),
+                query,
+            )
+            return index
+        except Exception as exc:
+            logger.warning("score_product_candidates failed query=%s error=%s", query, exc)
+            return None
+
     def _fallback_summary(
         self,
         page: PageUnderstanding,

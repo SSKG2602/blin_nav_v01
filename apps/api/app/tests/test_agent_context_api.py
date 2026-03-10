@@ -89,6 +89,8 @@ class FakeLLMClient:
         self.summary_text = "I found a product and prepared a safe summary."
         self.multimodal_decision = MultimodalDecision.REQUIRE_USER_CONFIRMATION
 
+    def score_product_candidates(self, *, query, candidates): return None
+
     def summarize_page_and_verification(self, page, verification) -> str:
         if self.raise_summary_error:
             raise RuntimeError("llm temporarily unavailable")

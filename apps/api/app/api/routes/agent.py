@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -189,6 +190,7 @@ def _decorate_commands(
     *,
     product_intent: ProductIntentSpec | None,
     previous_context: SessionContextSnapshot | None,
+    llm_client: BlindNavLLMClient | None = None,
 ) -> list[AgentCommand]:
     decorated: list[AgentCommand] = []
     query = _safe_text(product_intent.raw_query if product_intent is not None else None)
@@ -198,6 +200,7 @@ def _decorate_commands(
     preferred_candidate = _choose_candidate_for_intent(
         page=previous_context.latest_page_understanding if previous_context is not None else None,
         product_intent=product_intent,
+        llm_client=llm_client,
     )
 
     for command in commands:
@@ -268,7 +271,10 @@ def _score_candidate(
         field_text = _safe_text(field_value)
         if not field_text:
             continue
-        if field_text.lower() in haystack:
+        field_lower = field_text.lower()
+        haystack_nospace = re.sub(r"\s+", "", haystack)
+        field_nospace = re.sub(r"\s+", "", field_lower)
+        if field_lower in haystack or (field_nospace and field_nospace in haystack_nospace):
             score += 4
         else:
             score -= 1
@@ -287,20 +293,58 @@ def _choose_candidate_for_intent(
     *,
     page: PageUnderstanding | None,
     product_intent: ProductIntentSpec | None,
+    llm_client: BlindNavLLMClient | None = None,
 ) -> ProductCandidate | None:
     if page is None or product_intent is None or not page.product_candidates:
         return None
 
-    best_candidate: ProductCandidate | None = None
-    best_score = -10_000
+    scored: list[tuple[int, ProductCandidate]] = []
     for candidate in page.product_candidates:
         score = _score_candidate(candidate, product_intent=product_intent)
-        if score > best_score:
-            best_candidate = candidate
-            best_score = score
+        scored.append((score, candidate))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_candidate = scored[0][1] if scored else None
+    best_score = scored[0][0] if scored else -10_000
 
     if best_candidate is None or best_score < 1:
         return None
+
+    if (
+        llm_client is not None
+        and len(scored) >= 2
+        and abs(scored[0][0] - scored[1][0]) <= 2
+        and product_intent.raw_query
+    ):
+        top2_candidates = [scored[0][1], scored[1][1]]
+        try:
+            gemini_index = llm_client.score_product_candidates(
+                query=product_intent.raw_query,
+                candidates=[
+                    {
+                        "title": candidate.title,
+                        "url": candidate.url,
+                        "price_text": candidate.price_text,
+                    }
+                    for candidate in top2_candidates
+                ],
+            )
+            if gemini_index is not None and 0 <= gemini_index < len(top2_candidates):
+                chosen = top2_candidates[gemini_index]
+                logger.info(
+                    "gemini_tiebreak_applied query=%s picked=%s over=%s",
+                    product_intent.raw_query,
+                    chosen.title,
+                    top2_candidates[1 - gemini_index].title,
+                )
+                return chosen
+        except Exception as exc:
+            logger.warning(
+                "gemini_tiebreak_failed query=%s error=%s falling_back_to_regex_winner",
+                product_intent.raw_query,
+                exc,
+            )
+
     return best_candidate
 
 
@@ -582,6 +626,7 @@ def run_agent_step(
             efficiency_commands,
             product_intent=resolved_product_intent,
             previous_context=previous_context,
+            llm_client=llm_client,
         )
         executor.execute_many(session_id, decorated_commands)
 

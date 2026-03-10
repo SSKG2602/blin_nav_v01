@@ -17,6 +17,7 @@ from app.agent.state import AgentState, HumanCheckpointResolved
 from app.db.session import get_db
 from app.llm.client import BlindNavLLMClient
 from app.llm.dependencies import get_llm_client
+from app.models.session import SessionORM
 from app.repositories.session_repo import (
     append_agent_log,
     create_session,
@@ -32,7 +33,7 @@ from app.schemas.control_state import CheckpointStatus, SensitiveCheckpointReque
 from app.schemas.order_support import LatestOrderSnapshot, OrderCancellationResult
 from app.schemas.purchase_support import FinalPurchaseConfirmation
 from app.schemas.session_context import SessionContextSnapshot
-from app.schemas.session import Merchant, SessionCreate, SessionDetail, SessionSummary
+from app.schemas.session import Merchant, SessionCreate, SessionDetail, SessionStatus, SessionSummary
 from app.tools.browser_runtime import BrowserRuntimeClient
 from app.tools.dependencies import get_browser_runtime_client
 
@@ -290,6 +291,27 @@ def list_sessions_endpoint(
     if merchant is None:
         return items
     return [item for item in items if item.merchant == merchant]
+
+
+@router.delete(
+    "/{session_id}",
+)
+def delete_session_endpoint(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
+) -> dict[str, bool]:
+    row = db.query(SessionORM).filter(SessionORM.id == str(session_id)).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if row.user_id is not None and (
+        current_user is None or row.user_id != str(current_user.profile.user_id)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Session access denied")
+    row.status = SessionStatus.ENDED.value
+    db.add(row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post(

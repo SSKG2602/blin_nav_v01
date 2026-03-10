@@ -23,6 +23,14 @@ def get_current_page_observation(session_id: UUID) -> RuntimePageObservation:
             browser_session_manager.navigate_to(session_id, "https://www.amazon.in")
     except Exception:
         pass
+    try:
+        current_url = browser_session_manager.get_current_url(session_id)
+        if current_url and (
+            "captcha" in current_url.lower() or "validatecaptcha" in current_url.lower()
+        ):
+            browser_session_manager.navigate_to(session_id, "https://www.amazon.in")
+    except Exception:
+        pass
     return browser_session_manager.get_current_page_observation(session_id)
 
 

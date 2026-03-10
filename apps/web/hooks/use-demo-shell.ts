@@ -100,6 +100,13 @@ function stopMediaStream(stream: MediaStream | null) {
   stream.getTracks().forEach((track) => track.stop());
 }
 
+function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.localStorage.getItem(AUTH_STORAGE_KEY);
+}
+
 export function useDemoShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -243,6 +250,31 @@ export function useDemoShell() {
       await refreshRuntimeObservationState(id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh session context.");
+    }
+  };
+
+  const deleteSessionById = async (id: string, allowNotFound = false) => {
+    const authToken = getStoredAuthToken();
+    const response = await fetch(`${API_BASE_URL}/api/sessions/${id}`, {
+      method: "DELETE",
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+      },
+      cache: "no-store"
+    });
+
+    if (allowNotFound && response.status === 404) {
+      return;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || "Failed to close session.");
+    }
+
+    const payload = (await response.json()) as { ok?: boolean };
+    if (payload.ok !== true) {
+      throw new Error("Session close did not confirm success.");
     }
   };
 
@@ -411,7 +443,7 @@ export function useDemoShell() {
     return true;
   };
 
-  const closeConnection = () => {
+  const resetLocalConnectionState = () => {
     stopListening();
     stopWakePhraseListener();
     stopSpeechPlayback();
@@ -422,10 +454,17 @@ export function useDemoShell() {
     }
     setConnected(false);
     setConnecting(false);
+    setSessionId(null);
     wakeActiveRef.current = false;
     setWakeActive(false);
     wakePhraseEnabledRef.current = false;
     setWakePhraseEnabled(false);
+    setContext(null);
+    setCheckpoint(null);
+    setClarification(null);
+    setRuntimeObservation(null);
+    setRuntimeScreenshot(null);
+    setTranscript([]);
     setAmazonConnected(false);
     setAmazonCookiePanelOpen(false);
     setAmazonCookieInput("");
@@ -433,6 +472,26 @@ export function useDemoShell() {
     setAmazonAuthNote(null);
     setBrowserActivityStatus("Waiting for a live browser session.");
     stopPolling();
+  };
+
+  const closeConnection = async () => {
+    if (!sessionId) {
+      resetLocalConnectionState();
+      return;
+    }
+
+    setError(null);
+    try {
+      await deleteSessionById(sessionId);
+      resetLocalConnectionState();
+      if (getStoredAuthToken()) {
+        void refreshSessionHistory();
+      } else {
+        setSessionHistory([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to close session.");
+    }
   };
 
   useEffect(() => {
@@ -458,7 +517,7 @@ export function useDemoShell() {
     })();
     void refreshSessionHistory();
     return () => {
-      closeConnection();
+      resetLocalConnectionState();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -706,6 +765,17 @@ export function useDemoShell() {
     setWakeActive(false);
 
     try {
+      if (getStoredAuthToken()) {
+        const existingSessions = await listSessions(25);
+        for (const existingSession of existingSessions) {
+          if (existingSession.status !== "active") {
+            continue;
+          }
+          await deleteSessionById(existingSession.session_id, true);
+        }
+        await refreshSessionHistory();
+      }
+
       const live = await createLiveSession({
         merchant: "amazon.in",
         locale: safeLocale(locale)
@@ -826,13 +896,12 @@ export function useDemoShell() {
     }
   };
 
-  const logoutUser = () => {
+  const logoutUser = async () => {
+    await closeConnection();
     persistAuthToken(null);
-    closeConnection();
     setCurrentUser(null);
     setSessionHistory([]);
     appendTranscript(makeTranscript("system", "Signed out of demo profile."));
-    void refreshSessionHistory();
   };
 
   const sendUserText = () => {
@@ -1172,8 +1241,7 @@ export function useDemoShell() {
     setBrowserActivityStatus("Loading pasted Amazon.in cookies into the live browser session.");
 
     try {
-      const authToken =
-        typeof window === "undefined" ? null : window.localStorage.getItem(AUTH_STORAGE_KEY);
+      const authToken = getStoredAuthToken();
       const response = await fetch(`${API_BASE_URL}/api/auth/amazon/cookies`, {
         method: "POST",
         headers: {

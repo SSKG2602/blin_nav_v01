@@ -18,13 +18,24 @@ AMAZON_CART_URL = BB_CART_URL
 AMAZON_ORDERS_URL = BB_ORDERS_URL
 
 SEARCH_INPUT_SELECTORS = [
+    "input[id='search']",
+    "#autocomplete-search",
     "input[name='searchQuery']",
     "input[placeholder*='Search']",
     "input[placeholder*='search']",
     "input[type='search']",
 ]
 
-SEARCH_RESULT_CONTAINER_SELECTOR = "div.SKUDeck___StyledDiv, li.PaginateItems___StyledLi, div[class*='SKUDeck'], div[qa='product-listing']"
+SEARCH_RESULT_CONTAINER_SELECTOR = (
+    "div.SKUDeck___StyledDiv, "
+    "li.PaginateItems___StyledLi, "
+    "div[class*='SKUDeck'], "
+    "div[qa='product-listing'], "
+    "li[class*='PaginateItems'], "
+    "div[class*='product-card'], "
+    "div[class*='ProductCard'], "
+    "div[class*='sku-']"
+)
 SEARCH_RESULT_LINK_SELECTORS = [
     "a[href*='/pd/']",
     "div[class*='SKUDeck'] a",
@@ -43,6 +54,10 @@ ADD_TO_CART_BUTTON_SELECTORS = [
     "button[qa='add-to-cart']",
     "div[class*='AddToCart'] button",
     "button[class*='add-to-basket']",
+    "button[class*='AddBtn']",
+    "button[class*='add-btn']",
+    "button:has-text('Add')",
+    "button:has-text('ADD')",
 ]
 
 VARIANT_OPTION_SELECTORS = [
@@ -160,6 +175,11 @@ BB_QUANTITY_STEPPER_SELECTORS = [
     "div[class*='CartCount']",
     "button[class*='CounterButton']",
     "div[class*='ItemCount']",
+    "div[class*='counter']",
+    "div[class*='Counter']",
+    "button[class*='increase']",
+    "button[class*='Increase']",
+    "span[class*='CartCount']",
 ]
 
 PRODUCT_TITLE_SELECTORS = [
@@ -167,6 +187,9 @@ PRODUCT_TITLE_SELECTORS = [
     "span[class*='ProductName']",
     "h1[class*='ProductName']",
     "div[qa='product-name'] h1",
+    "h1[class*='product']",
+    "div[class*='product-title'] h1",
+    "h1",
 ]
 
 PRODUCT_PRICE_SELECTORS = [
@@ -233,6 +256,11 @@ CART_COUNT_SELECTORS = [
     "div[class*='BasketSummary']",
     "span[class*='ItemCount']",
     "div[qa='basket-count']",
+    "span[class*='badge']",
+    "span[class*='Badge']",
+    "div[class*='CartCount']",
+    "span[class*='CartCount']",
+    "a[href*='basket'] span",
 ]
 
 CART_ROW_TITLE_SELECTORS = [
@@ -732,6 +760,33 @@ def detect_location_blocked(page: Any) -> bool:
     return False
 
 
+def classify_page_state(page: Any) -> str:
+    """
+    Classify the current browser page into a named state.
+    Returns one of:
+      'blank' | 'login' | 'checkout' | 'cart' | 'product' | 'search_results' | 'home' | 'unknown'
+    This is used as a pre-action guard in route handlers.
+    """
+    url = _normalize_lower(safe_page_url(page))
+    if not url or url == "about:blank":
+        return "blank"
+    if "login" in url or "signin" in url or "sign-in" in url:
+        return "login"
+    if "checkout" in url:
+        return "checkout"
+    if "/basket/" in url or ("basket" in url and "bigbasket" not in url):
+        return "cart"
+    if "/bb-cart/" in url:
+        return "cart"
+    if "/pd/" in url:
+        return "product"
+    if "/ps/" in url or "?q=" in url or "search" in url:
+        return "search_results"
+    if "bigbasket.com" in url:
+        return "home"
+    return "unknown"
+
+
 def collect_semantic_page_signals(page: Any) -> list[str]:
     signals: list[str] = []
     groups = [
@@ -1136,7 +1191,11 @@ def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, l
         return True, notes
 
     pre_count = _read_cart_badge_count(page)
-    _REJECT_BUTTON_TEXTS = ("notify", "wishlist", "login", "subscribe", "view", "explore", "replace")
+    _REJECT_BUTTON_TEXTS = (
+        "notify", "notify me", "wishlist", "login", "subscribe",
+        "view", "explore", "replace", "quick view", "see all",
+        "know more", "out of stock", "unavailable",
+    )
 
     for attempt in range(2):
         for selector in ADD_TO_CART_BUTTON_SELECTORS:

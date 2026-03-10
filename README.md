@@ -38,7 +38,7 @@ The current branch implements the bounded non-future BlindNav scope, including:
 - review risk analysis with spoken takeaways
 - interruption handling, low-confidence halt, and desynchronization recovery
 - cart and checkout verification with explicit checkpoint and final-confirmation gating
-- Amazon.in connect flow surfaced from the shell
+- BigBasket connect flow surfaced from the shell
 - browser activity monitor with screenshot thumbnail, URL, and status text
 - latest-order support, bounded order cancellation, and post-purchase summary visibility
 - session history, lightweight auth, structured logs, closure artifacts, and self-diagnosis
@@ -47,7 +47,7 @@ The current branch implements the bounded non-future BlindNav scope, including:
 
 BlindNav is intentionally scoped for a bounded hackathon demo:
 
-- primary merchant target: `amazon.in`
+- primary merchant target: `bigbasket.com`
 - bounded backup contingencies: `flipkart.com`, `meesho.com`
 - operator shell: live demo and debugging surface, not a consumer storefront
 - no claim of unconstrained multi-merchant autonomy
@@ -103,7 +103,7 @@ The current verification surface includes:
 - backend pytest suite in `apps/api/app/tests`
 - browser-runtime pytest suite in `browser-runtime/tests`
 - frontend typecheck and production build checks in `apps/web`
-- manual live smoke checks for voice wake, spoken replies, browser activity, Amazon connect, checkpoints, and post-purchase controls
+- manual live smoke checks for voice wake, spoken replies, browser activity, BigBasket connect, checkpoints, and post-purchase controls
 
 ## Documentation map
 

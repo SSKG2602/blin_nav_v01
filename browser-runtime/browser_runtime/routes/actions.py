@@ -14,6 +14,7 @@ from browser_runtime.automation import (
     action_guard,
     attempt_cancel_latest_order,
     attempt_checkout_entry,
+    classify_page_state,
     detect_location_blocked,
     dismiss_common_interruptions,
     extract_cart_evidence,
@@ -97,9 +98,20 @@ def navigate_to_search_results(
     notes: list[str] = []
     try:
         notes.extend(dismiss_common_interruptions(page))
+
         if detect_location_blocked(page):
-            notes.append("location_blocked_detected")
-            logger.warning("navigate_to_search_results blocked by location modal session=%s", session_id)
+            notes.append("location_blocked_hard_stop")
+            logger.warning(
+                "navigate_to_search_results: location blocked, aborting session=%s", session_id
+            )
+            return _accepted_response()
+
+        page_state = classify_page_state(page)
+        if page_state not in ("home", "search_results", "blank"):
+            notes.append(f"unexpected_page_state_before_search:{page_state}")
+            if not safe_goto(page, BB_HOME_URL):
+                notes.append("home_navigation_failed")
+
         current_url = safe_page_url(page)
 
         if action_guard.should_skip_duplicate_search(
@@ -113,10 +125,6 @@ def navigate_to_search_results(
                 {"session_id": str(session_id), "notes": notes},
             )
             return _accepted_response()
-
-        if current_url is None or "bigbasket.com" not in current_url.lower():
-            if not safe_goto(page, BB_HOME_URL):
-                notes.append("home_navigation_failed")
 
         submitted, submit_notes = submit_search_query(page, payload.query)
         notes.extend(submit_notes)
@@ -155,6 +163,13 @@ def inspect_product_page(
     try:
         page = browser_session_manager.get_page(session_id)
         notes.extend(dismiss_common_interruptions(page))
+        if not payload.candidate_url:
+            page_state = classify_page_state(page)
+            if page_state not in ("search_results", "product"):
+                notes.append(f"inspect_product_wrong_state:{page_state}")
+                logger.warning(
+                    "inspect_product_page: wrong page state %s, session=%s", page_state, session_id
+                )
         candidate = None
         opened = False
         if payload.candidate_url:
@@ -286,6 +301,29 @@ def add_to_cart(
     try:
         page = browser_session_manager.get_page(session_id)
         notes = dismiss_common_interruptions(page)
+        page_state = classify_page_state(page)
+        if page_state != "product":
+            notes.append(f"add_to_cart_wrong_state:{page_state}")
+            logger.warning(
+                "add_to_cart called from wrong page state=%s session=%s", page_state, session_id
+            )
+            if page_state in ("search_results",):
+                _opened, _candidate, _open_notes = open_best_search_result(
+                    page, session_id=session_id
+                )
+                notes.extend(_open_notes)
+            elif page_state not in ("product",):
+                notes.append("add_to_cart_aborted_wrong_state")
+                logger.info(
+                    "add_to_cart_summary %s",
+                    {"session_id": str(session_id), "added": False, "notes": notes},
+                )
+                return _accepted_response()
+
+        if detect_location_blocked(page):
+            notes.append("add_to_cart_location_blocked")
+            logger.warning("add_to_cart: location blocked session=%s", session_id)
+            return _accepted_response()
         added, add_notes = add_current_product_to_cart(page, session_id=session_id)
         notes.extend(add_notes)
         logger.info(
@@ -437,6 +475,13 @@ def perform_checkout(
             )
             return _accepted_response()
 
+        page_state = classify_page_state(page)
+        if page_state not in ("cart", "checkout"):
+            notes.append(f"checkout_wrong_state:{page_state}")
+            logger.warning(
+                "perform_checkout: not on cart, state=%s session=%s", page_state, session_id
+            )
+
         if current_url is None or ("cart" not in current_url.lower() and "checkout" not in current_url.lower()):
             if not safe_goto(page, BB_CART_URL):
                 notes.append("cart_navigation_before_checkout_failed")
@@ -471,56 +516,60 @@ def finalize_purchase(
     try:
         page = browser_session_manager.get_page(session_id)
         notes = dismiss_common_interruptions(page)
-        current_url = safe_page_url(page) or ""
-        current_url_lower = current_url.lower()
-
-        confirmation_visible = any(
-            token in current_url_lower
-            for token in ("order-confirmation", "thankyou", "order-details", "order")
-        )
-        if confirmation_visible:
-            notes.append("order_confirmation_already_visible")
-        elif not settings.ALLOW_FINAL_PURCHASE_AUTOMATION:
+        if not settings.ALLOW_FINAL_PURCHASE_AUTOMATION:
             notes.append("final_purchase_automation_disabled")
+            logger.info("finalize_purchase_summary %s", {"session_id": str(session_id), "notes": notes})
+            return _accepted_response()
+
+        page_state = classify_page_state(page)
+        if page_state != "checkout":
+            notes.append(f"finalize_wrong_state:{page_state}")
+            logger.warning("finalize_purchase: not on checkout state=%s session=%s", page_state, session_id)
+            return _accepted_response()
+
+        current_url = (safe_page_url(page) or "").lower()
+        if any(t in current_url for t in ("order-confirmation", "thankyou", "thank-you", "order-placed")):
+            notes.append("order_confirmation_already_visible")
         else:
-            clicked = False
-            selectors = [
-                'input[name="placeYourOrder1"]',
-                '#submitOrderButtonId',
-                '#placeYourOrder',
-                '#bottomSubmitOrderButtonId',
-                'button[name="placeYourOrder1"]',
-                'input[aria-label*="Place your order"]',
-                'button[aria-label*="Place your order"]',
+            BB_PLACE_ORDER_SELECTORS = [
+                "button[class*='PlaceOrder']",
+                "button[qa='place-order']",
+                "button[class*='Confirm']",
+                "button[class*='PayNow']",
+                "button[class*='pay-now']",
+                "button[class*='Proceed']",
             ]
-            for selector in selectors:
-                locator = getattr(page, "locator", None)
-                if not callable(locator):
+            clicked = False
+            for selector in BB_PLACE_ORDER_SELECTORS:
+                loc_fn = getattr(page, "locator", None)
+                if not callable(loc_fn):
                     continue
-                button = locator(selector)
-                is_visible = getattr(button, "is_visible", None)
-                if callable(is_visible) and not is_visible(timeout=1500):
+                btn = loc_fn(selector)
+                vis_fn = getattr(btn, "is_visible", None)
+                try:
+                    if callable(vis_fn) and not vis_fn(timeout=1500):
+                        continue
+                except Exception:
                     continue
-                click = getattr(button, "click", None)
-                if not callable(click):
+                clk_fn = getattr(btn, "click", None)
+                if not callable(clk_fn):
                     continue
-                click(timeout=3000)
-                wait_for_load_state = getattr(page, "wait_for_load_state", None)
-                if callable(wait_for_load_state):
-                    wait_for_load_state("domcontentloaded")
-                clicked = True
-                notes.append(f"final_purchase_clicked:{selector}")
-                break
+                try:
+                    clk_fn(timeout=3000)
+                    wfl = getattr(page, "wait_for_load_state", None)
+                    if callable(wfl):
+                        wfl("domcontentloaded")
+                    clicked = True
+                    notes.append(f"final_purchase_clicked:{selector}")
+                    break
+                except Exception:
+                    continue
             if not clicked:
                 notes.append("final_purchase_button_not_found")
 
         logger.info(
             "finalize_purchase_summary %s",
-            {
-                "session_id": str(session_id),
-                "current_url": safe_page_url(page),
-                "notes": notes or None,
-            },
+            {"session_id": str(session_id), "current_url": safe_page_url(page), "notes": notes or None},
         )
     except Exception as exc:
         logger.error("finalize_purchase failed for session %s: %s", session_id, exc)

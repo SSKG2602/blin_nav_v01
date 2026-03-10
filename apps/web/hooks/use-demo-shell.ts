@@ -224,7 +224,7 @@ export function useDemoShell() {
       const status = await getAmazonConnectionStatus(id);
       setAmazonConnected(status.connected);
       if (status.connected) {
-        setAmazonAuthNote("Amazon Connected ✓");
+        setAmazonAuthNote("BigBasket Connected ✓");
       } else if (status.notes) {
         setAmazonAuthNote(status.notes);
       }
@@ -777,7 +777,7 @@ export function useDemoShell() {
       }
 
       const live = await createLiveSession({
-        merchant: "amazon.in",
+        merchant: "bigbasket.com",
         locale: safeLocale(locale)
       });
 
@@ -791,7 +791,7 @@ export function useDemoShell() {
       await refreshSessionHistory();
       startPolling(live.session_id);
       startScreenshotPolling(live.session_id);
-      setBrowserActivityStatus("Starting a live browser session on amazon.in.");
+      setBrowserActivityStatus("Starting a live browser session on BigBasket.");
 
       const ws = new WebSocket(buildLiveWebSocketUrl(live.websocket_path));
       wsRef.current = ws;
@@ -1179,7 +1179,7 @@ export function useDemoShell() {
       return;
     }
     try {
-      setBrowserActivityStatus("Loading the latest order details from amazon.in.");
+      setBrowserActivityStatus("Loading the latest order details from BigBasket.");
       await loadLatestOrderSnapshot(sessionId);
       appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
       await refreshContext(sessionId);
@@ -1194,7 +1194,7 @@ export function useDemoShell() {
     }
     setOrderCancelBusy(true);
     setError(null);
-    setBrowserActivityStatus("Attempting to cancel the latest order from amazon.in.");
+    setBrowserActivityStatus("Attempting to cancel the latest order from BigBasket.");
     try {
       const result: OrderCancellationResult = await cancelLatestOrder(sessionId);
       appendTranscript(makeTranscript(result.cancelled ? "assistant" : "warning", result.spoken_summary));
@@ -1208,28 +1208,28 @@ export function useDemoShell() {
     }
   };
 
-  const connectAmazonIn = async () => {
+  const connectBigBasket = async () => {
     if (!sessionId) {
-      setError("Start a live session before connecting Amazon.in.");
+      setError("Start a live session before connecting BigBasket.");
       return;
     }
     setError(null);
     setAmazonCookiePanelOpen(true);
     setAmazonAuthNote(
-      "Paste the exported Amazon.in cookies JSON for the active BlindNav session."
+      "Paste your BigBasket cookies JSON for the active Luminar session."
     );
-    setBrowserActivityStatus("Waiting for pasted Amazon.in cookies.");
+    setBrowserActivityStatus("Waiting for pasted BigBasket cookies.");
   };
 
-  const saveAmazonCookies = async () => {
+  const saveBigBasketCookies = async () => {
     if (!sessionId) {
-      setError("Start a live session before saving Amazon.in cookies.");
+      setError("Start a live session before saving BigBasket cookies.");
       return;
     }
 
     const cookies = amazonCookieInput.trim();
     if (!cookies) {
-      const message = "Paste exported Amazon.in cookies JSON before saving.";
+      const message = "Paste exported BigBasket cookies JSON before saving.";
       setAmazonAuthNote(message);
       setError(message);
       return;
@@ -1237,12 +1237,12 @@ export function useDemoShell() {
 
     setAmazonAuthBusy(true);
     setError(null);
-    setAmazonAuthNote("Saving Amazon.in cookies into the BlindNav runtime...");
-    setBrowserActivityStatus("Loading pasted Amazon.in cookies into the live browser session.");
+    setAmazonAuthNote("Saving BigBasket cookies into the Luminar runtime...");
+    setBrowserActivityStatus("Loading pasted BigBasket cookies into the live browser session.");
 
     try {
       const authToken = getStoredAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/auth/amazon/cookies`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/bigbasket/cookies`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1257,27 +1257,27 @@ export function useDemoShell() {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "Amazon cookie save failed.");
+        throw new Error(text || "BigBasket cookie save failed.");
       }
 
       const payload = (await response.json()) as { connected?: boolean };
       if (payload.connected !== true) {
-        throw new Error("Amazon cookie save did not confirm a connected runtime session.");
+        throw new Error("BigBasket cookie save did not confirm a connected runtime session.");
       }
 
       setAmazonConnected(true);
-      setAmazonAuthNote("Amazon Connected ✓");
+      setAmazonAuthNote("BigBasket Connected ✓");
       setAmazonCookieInput("");
       setAmazonCookiePanelOpen(false);
-      appendTranscript(makeTranscript("system", "Amazon Connected ✓"));
-      setBrowserActivityStatus("Amazon.in cookies loaded into the runtime session.");
+      appendTranscript(makeTranscript("system", "BigBasket Connected ✓"));
+      setBrowserActivityStatus("BigBasket cookies loaded into the runtime session.");
       await refreshAmazonConnectionStatus(sessionId, true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to save Amazon.in cookies.";
+      const message = err instanceof Error ? err.message : "Failed to save BigBasket cookies.";
       setAmazonConnected(false);
       setAmazonAuthNote(message);
       setError(message);
-      setBrowserActivityStatus("Amazon.in cookie load failed.");
+      setBrowserActivityStatus("BigBasket cookie load failed.");
     } finally {
       setAmazonAuthBusy(false);
     }
@@ -1347,8 +1347,10 @@ export function useDemoShell() {
     updateCartLineQuantity,
     fetchLatestOrderSnapshot,
     cancelPlacedOrder,
-    connectAmazonIn,
-    saveAmazonCookies,
+    connectBigBasket,
+    saveBigBasketCookies,
+    connectAmazonIn: connectBigBasket,
+    saveAmazonCookies: saveBigBasketCookies,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

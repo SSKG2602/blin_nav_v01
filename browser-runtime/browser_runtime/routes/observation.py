@@ -15,12 +15,14 @@ from browser_runtime.observation.models import (
 
 router = APIRouter(prefix="/sessions", tags=["observation"])
 
+_BB_HOME = "https://www.bigbasket.com"
+
 
 @router.get("/{session_id}/observation/current_page", response_model=RuntimePageObservation)
 def get_current_page_observation(session_id: UUID) -> RuntimePageObservation:
     try:
         if browser_session_manager.get_current_url(session_id) == "about:blank":
-            browser_session_manager.navigate_to(session_id, "https://www.amazon.in")
+            browser_session_manager.navigate_to(session_id, _BB_HOME)
     except Exception:
         pass
     try:
@@ -28,7 +30,7 @@ def get_current_page_observation(session_id: UUID) -> RuntimePageObservation:
         if current_url and (
             "captcha" in current_url.lower() or "validatecaptcha" in current_url.lower()
         ):
-            browser_session_manager.navigate_to(session_id, "https://www.amazon.in")
+            browser_session_manager.navigate_to(session_id, _BB_HOME)
     except Exception:
         pass
     return browser_session_manager.get_current_page_observation(session_id)

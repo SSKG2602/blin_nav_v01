@@ -171,3 +171,28 @@ def get_amazon_connection_status(
     _require_existing_session(db, session_id, current_user=current_user)
     payload = browser_client.get_amazon_auth_status(session_id=session_id)
     return AmazonConnectionStatus.model_validate(payload or {})
+
+
+@router.post("/bigbasket/cookies")
+def set_bigbasket_connection_cookies(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
+    current_user=Depends(get_current_user_optional),
+) -> dict[str, bool]:
+    """BigBasket cookie loader — same cookie mechanism as Amazon route."""
+    return set_amazon_connection_cookies(
+        payload=payload, db=db, browser_client=browser_client, current_user=current_user
+    )
+
+
+@router.get("/bigbasket/status/{session_id}", response_model=AmazonConnectionStatus)
+def get_bigbasket_connection_status(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
+    current_user=Depends(get_current_user_optional),
+) -> AmazonConnectionStatus:
+    return get_amazon_connection_status(
+        session_id=session_id, db=db, browser_client=browser_client, current_user=current_user
+    )

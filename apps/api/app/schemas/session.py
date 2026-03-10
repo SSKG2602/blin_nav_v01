@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class Merchant(str, Enum):
+    BIGBASKET = "bigbasket.com"
     AMAZON = "amazon.in"
     FLIPKART = "flipkart.com"
     MEESHO = "meesho.com"
@@ -21,7 +22,7 @@ class SessionStatus(str, Enum):
 
 
 class SessionCreate(BaseModel):
-    merchant: Merchant = Merchant.AMAZON
+    merchant: Merchant = Merchant.BIGBASKET
     locale: str | None = None
     screen_reader: str | None = None
     client_version: str | None = None

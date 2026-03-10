@@ -9,9 +9,13 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-AMAZON_HOME_URL = "https://www.bigbasket.com"
-AMAZON_CART_URL = "https://www.bigbasket.com/basket/"
-AMAZON_ORDERS_URL = "https://www.bigbasket.com/order/order-history/"
+BB_HOME_URL = "https://www.bigbasket.com"
+BB_CART_URL = "https://www.bigbasket.com/basket/"
+BB_ORDERS_URL = "https://www.bigbasket.com/order/order-history/"
+
+AMAZON_HOME_URL = BB_HOME_URL
+AMAZON_CART_URL = BB_CART_URL
+AMAZON_ORDERS_URL = BB_ORDERS_URL
 
 SEARCH_INPUT_SELECTORS = [
     "input[name='searchQuery']",
@@ -138,6 +142,24 @@ MODAL_DISMISS_SELECTORS = [
     "button[class*='close']",
     "div[class*='Modal'] button",
     "button[class*='Dismiss']",
+]
+
+BB_LOCATION_MODAL_SELECTORS = [
+    "div[class*='LocationModal']",
+    "div[class*='DeliveryModal']",
+    "div[class*='PincodeModal']",
+    "button[class*='SelectCity']",
+    "div[qa='location-modal']",
+    "input[placeholder*='pincode']",
+    "input[placeholder*='Pincode']",
+]
+
+BB_QUANTITY_STEPPER_SELECTORS = [
+    "div[class*='QuantityControl']",
+    "div[class*='qty-']",
+    "div[class*='CartCount']",
+    "button[class*='CounterButton']",
+    "div[class*='ItemCount']",
 ]
 
 PRODUCT_TITLE_SELECTORS = [
@@ -699,6 +721,17 @@ def dismiss_common_interruptions(page: Any) -> list[str]:
     return notes
 
 
+def detect_location_blocked(page: Any) -> bool:
+    """Returns True if BigBasket is showing a location/pincode modal blocking the page."""
+    for selector in BB_LOCATION_MODAL_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        if safe_is_visible(_first(locator)) is not False:
+            return True
+    return False
+
+
 def collect_semantic_page_signals(page: Any) -> list[str]:
     signals: list[str] = []
     groups = [
@@ -822,7 +855,7 @@ def collect_search_result_candidates(page: Any, limit: int = 8) -> list[dict[str
         )
 
         if url and url.startswith("/"):
-            url = urljoin(AMAZON_HOME_URL, url)
+            url = urljoin(BB_HOME_URL, url)
 
         candidate = {
             "title": title,
@@ -846,7 +879,7 @@ def collect_search_result_candidates(page: Any, limit: int = 8) -> list[dict[str
         href = safe_get_attribute(_first(locator), "href")
         title = safe_inner_text(_first(locator))
         if href and href.startswith("/"):
-            href = urljoin(AMAZON_HOME_URL, href)
+            href = urljoin(BB_HOME_URL, href)
         if title or href:
             candidates.append(
                 {
@@ -865,9 +898,22 @@ def collect_search_result_candidates(page: Any, limit: int = 8) -> list[dict[str
     return candidates
 
 
-def choose_best_product_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+def choose_best_product_candidate(
+    candidates: list[dict[str, Any]],
+    *,
+    query: str | None = None,
+) -> dict[str, Any] | None:
+    import re as _re
+
     best: dict[str, Any] | None = None
     best_score = -10_000
+    query_tokens: list[str] = []
+    size_tokens: list[str] = []
+    if query:
+        q_lower = query.lower()
+        size_tokens = _re.findall(r"\d+\s*(?:kg|g|ml|l|gm|ltr|litre|pack|pcs|pc)\b", q_lower)
+        _STOP = {"a", "an", "the", "of", "for", "and", "or", "with", "in", "on"}
+        query_tokens = [w for w in q_lower.split() if len(w) > 2 and w not in _STOP]
 
     for candidate in candidates:
         url = _normalize_lower(candidate.get("url"))
@@ -889,6 +935,16 @@ def choose_best_product_candidate(candidates: list[dict[str, Any]]) -> dict[str,
             score -= 4
         if not url:
             score -= 2
+        if query_tokens:
+            for token in query_tokens:
+                if token in title:
+                    score += 3
+        if size_tokens:
+            matched_size = any(size_token in title for size_token in size_tokens)
+            if matched_size:
+                score += 5
+            else:
+                score -= 2
 
         if score > best_score:
             best_score = score
@@ -899,7 +955,12 @@ def choose_best_product_candidate(candidates: list[dict[str, Any]]) -> dict[str,
     return best
 
 
-def open_best_search_result(page: Any, *, session_id: UUID) -> tuple[bool, dict[str, Any] | None, list[str]]:
+def open_best_search_result(
+    page: Any,
+    *,
+    session_id: UUID,
+    query: str | None = None,
+) -> tuple[bool, dict[str, Any] | None, list[str]]:
     notes: list[str] = []
     current_url = safe_page_url(page)
     if action_guard.should_skip_duplicate_product_open(session_id, current_url=current_url):
@@ -907,7 +968,7 @@ def open_best_search_result(page: Any, *, session_id: UUID) -> tuple[bool, dict[
         return False, None, notes
 
     candidates = collect_search_result_candidates(page)
-    candidate = choose_best_product_candidate(candidates)
+    candidate = choose_best_product_candidate(candidates, query=query)
     if candidate is None:
         notes.append("candidate_not_found")
         return False, None, notes
@@ -1031,12 +1092,51 @@ def select_variant_option(
     return False, notes, signature
 
 
+def _read_cart_badge_count(page: Any) -> int | None:
+    """Read the current cart item count from the header badge. Returns None if unreadable."""
+    for selector in CART_COUNT_SELECTORS:
+        locator = safe_locator(page, selector)
+        if locator is None or safe_count(locator) <= 0:
+            continue
+        text = safe_inner_text(_first(locator))
+        parsed = _parse_int(text)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _verify_add_to_cart_evidence(page: Any, pre_count: int | None) -> bool:
+    """
+    Returns True if there is evidence the item was actually added to the cart.
+    Evidence = cart badge count increased OR a quantity stepper appeared.
+    """
+    import time
+
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        post_count = _read_cart_badge_count(page)
+        if post_count is not None:
+            pre = pre_count if pre_count is not None else 0
+            if post_count > pre:
+                return True
+        for selector in BB_QUANTITY_STEPPER_SELECTORS:
+            locator = safe_locator(page, selector)
+            if locator is not None and safe_count(locator) > 0:
+                if safe_is_visible(_first(locator)) is not False:
+                    return True
+        time.sleep(0.3)
+    return False
+
+
 def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, list[str]]:
     notes: list[str] = []
     current_url = safe_page_url(page)
     if action_guard.should_skip_duplicate_add_to_cart(session_id, current_url=current_url):
         notes.append("duplicate_add_to_cart_skipped")
         return True, notes
+
+    pre_count = _read_cart_badge_count(page)
+    _REJECT_BUTTON_TEXTS = ("notify", "wishlist", "login", "subscribe", "view", "explore", "replace")
 
     for attempt in range(2):
         for selector in ADD_TO_CART_BUTTON_SELECTORS:
@@ -1045,16 +1145,23 @@ def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, l
                 continue
             if safe_count(locator) <= 0:
                 continue
-            target = _first(locator)
-            visible = safe_is_visible(target)
-            if visible is False:
-                continue
-            if not safe_click(target):
-                continue
-            safe_wait_for_load(page)
-            action_guard.record_add_to_cart(session_id, current_url=safe_page_url(page))
-            notes.append(f"add_to_cart_clicked:{selector}")
-            return True, notes
+            for idx in range(min(safe_count(locator), 4)):
+                target = _nth(locator, idx)
+                visible = safe_is_visible(target)
+                if visible is False:
+                    continue
+                btn_text = _normalize_lower(safe_inner_text(target, timeout_ms=1000) or "")
+                if any(bad in btn_text for bad in _REJECT_BUTTON_TEXTS):
+                    notes.append(f"rejected_button:{btn_text[:30]}")
+                    continue
+                if not safe_click(target):
+                    continue
+                safe_wait_for_load(page)
+                if _verify_add_to_cart_evidence(page, pre_count):
+                    action_guard.record_add_to_cart(session_id, current_url=safe_page_url(page))
+                    notes.append(f"add_to_cart_verified:{selector}")
+                    return True, notes
+                notes.append(f"add_to_cart_clicked_unverified:{selector}")
         if attempt == 0:
             notes.extend(
                 _run_stabilization_pass(
@@ -1065,7 +1172,7 @@ def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, l
                 )
             )
 
-    notes.append("add_to_cart_button_not_found")
+    notes.append("add_to_cart_button_not_found_or_unverified")
     return False, notes
 
 
@@ -1149,7 +1256,7 @@ def extract_cart_evidence(page: Any) -> dict[str, Any]:
             title = _extract_first_text(row, CART_ROW_TITLE_SELECTORS)
             url = _extract_first_attr(row, CART_ROW_LINK_SELECTORS, "href")
             if url and url.startswith("/"):
-                url = urljoin(AMAZON_HOME_URL, url)
+                url = urljoin(BB_HOME_URL, url)
             price_text = _extract_first_text(row, CART_ROW_PRICE_SELECTORS)
             quantity_locator = safe_locator(row, "input[name*='quantity'], input[name*='qty']")
             quantity_text = _extract_first_text(row, CART_ROW_QUANTITY_TEXT_SELECTORS) or safe_get_attribute(
@@ -1345,9 +1452,9 @@ def extract_latest_order_evidence(page: Any) -> dict[str, Any]:
     returns_entry_hint = _extract_first_attr(scope, ORDER_RETURNS_LINK_SELECTORS, "href")
     support_entry_hint = _extract_first_attr(scope, ORDER_SUPPORT_LINK_SELECTORS, "href")
     if returns_entry_hint and returns_entry_hint.startswith("/"):
-        returns_entry_hint = urljoin(AMAZON_HOME_URL, returns_entry_hint)
+        returns_entry_hint = urljoin(BB_HOME_URL, returns_entry_hint)
     if support_entry_hint and support_entry_hint.startswith("/"):
-        support_entry_hint = urljoin(AMAZON_HOME_URL, support_entry_hint)
+        support_entry_hint = urljoin(BB_HOME_URL, support_entry_hint)
 
     if current_url and "order" not in _normalize_lower(current_url):
         notes.append("orders_url_not_confirmed")
@@ -1371,7 +1478,7 @@ def attempt_cancel_latest_order(page: Any) -> dict[str, Any]:
     notes: list[str] = []
     current_url = safe_page_url(page)
     if current_url is None or "order" not in _normalize_lower(current_url):
-        if not safe_goto(page, AMAZON_ORDERS_URL):
+        if not safe_goto(page, BB_ORDERS_URL):
             return {
                 "cancelled": False,
                 "cancellable": False,
@@ -1503,9 +1610,9 @@ def recover_to_stable_page(page: Any, *, preferred: str | None = None) -> dict[s
             target_order.append(target)
 
     target_urls = {
-        "home": AMAZON_HOME_URL,
-        "search": f"{AMAZON_HOME_URL}/ps/?q={quote_plus('dog food')}",
-        "cart": AMAZON_CART_URL,
+        "home": BB_HOME_URL,
+        "search": f"{BB_HOME_URL}/ps/?q={quote_plus('dog food')}",
+        "cart": BB_CART_URL,
     }
 
     notes: list[str] = []

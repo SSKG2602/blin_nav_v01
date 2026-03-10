@@ -7,13 +7,14 @@ from fastapi import APIRouter, Body, Response, status
 from pydantic import BaseModel
 
 from browser_runtime.automation import (
-    AMAZON_CART_URL,
-    AMAZON_HOME_URL,
-    AMAZON_ORDERS_URL,
+    BB_CART_URL,
+    BB_HOME_URL,
+    BB_ORDERS_URL,
     add_current_product_to_cart,
     action_guard,
     attempt_cancel_latest_order,
     attempt_checkout_entry,
+    detect_location_blocked,
     dismiss_common_interruptions,
     extract_cart_evidence,
     extract_product_detail_evidence,
@@ -44,6 +45,7 @@ class InspectProductPageRequest(BaseModel):
     page_type: str | None = None
     candidate_url: str | None = None
     candidate_title: str | None = None
+    query: str | None = None
 
 
 class HandleErrorRecoveryRequest(BaseModel):
@@ -95,6 +97,9 @@ def navigate_to_search_results(
     notes: list[str] = []
     try:
         notes.extend(dismiss_common_interruptions(page))
+        if detect_location_blocked(page):
+            notes.append("location_blocked_detected")
+            logger.warning("navigate_to_search_results blocked by location modal session=%s", session_id)
         current_url = safe_page_url(page)
 
         if action_guard.should_skip_duplicate_search(
@@ -109,8 +114,8 @@ def navigate_to_search_results(
             )
             return _accepted_response()
 
-        if current_url is None or "amazon.in" not in current_url.lower():
-            if not safe_goto(page, AMAZON_HOME_URL):
+        if current_url is None or "bigbasket.com" not in current_url.lower():
+            if not safe_goto(page, BB_HOME_URL):
                 notes.append("home_navigation_failed")
 
         submitted, submit_notes = submit_search_query(page, payload.query)
@@ -166,7 +171,11 @@ def inspect_product_page(
                     current_url=safe_page_url(page),
                 )
         else:
-            opened, candidate, selection_notes = open_best_search_result(page, session_id=session_id)
+            opened, candidate, selection_notes = open_best_search_result(
+                page,
+                session_id=session_id,
+                query=payload.query,
+            )
             notes.extend(selection_notes)
         evidence = extract_product_detail_evidence(page)
         if not opened:
@@ -304,7 +313,7 @@ def review_cart(
         notes = dismiss_common_interruptions(page)
         current_url = safe_page_url(page)
         if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, AMAZON_CART_URL):
+            if not safe_goto(page, BB_CART_URL):
                 notes.append("cart_navigation_failed")
         cart_evidence = extract_cart_evidence(page)
         if cart_evidence.get("cart_item_count") in {0, None}:
@@ -336,7 +345,7 @@ def remove_cart_item_action(
         notes = dismiss_common_interruptions(page)
         current_url = safe_page_url(page)
         if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, AMAZON_CART_URL):
+            if not safe_goto(page, BB_CART_URL):
                 notes.append("cart_navigation_before_remove_failed")
 
         removed, remove_notes = remove_cart_item(
@@ -377,7 +386,7 @@ def update_cart_quantity_action(
         notes = dismiss_common_interruptions(page)
         current_url = safe_page_url(page)
         if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, AMAZON_CART_URL):
+            if not safe_goto(page, BB_CART_URL):
                 notes.append("cart_navigation_before_quantity_failed")
 
         updated, update_notes = update_cart_item_quantity(
@@ -429,7 +438,7 @@ def perform_checkout(
             return _accepted_response()
 
         if current_url is None or ("cart" not in current_url.lower() and "checkout" not in current_url.lower()):
-            if not safe_goto(page, AMAZON_CART_URL):
+            if not safe_goto(page, BB_CART_URL):
                 notes.append("cart_navigation_before_checkout_failed")
 
         initiated, checkout_notes = attempt_checkout_entry(page)
@@ -527,7 +536,7 @@ def navigate_orders_history(
     try:
         page = browser_session_manager.get_page(session_id)
         notes = dismiss_common_interruptions(page)
-        if not safe_goto(page, AMAZON_ORDERS_URL):
+        if not safe_goto(page, BB_ORDERS_URL):
             notes.append("orders_navigation_failed")
         logger.info(
             "navigate_orders_history_summary %s",
@@ -594,7 +603,7 @@ def handle_error_recovery(
         recovery = recover_to_stable_page(page, preferred=preferred)
         notes.extend(recovery.get("notes") or [])
         if recovery.get("success") is not True and preferred != "home":
-            safe_goto(page, AMAZON_HOME_URL)
+            safe_goto(page, BB_HOME_URL)
             notes.append("home_fallback_after_recovery")
 
         logger.info(

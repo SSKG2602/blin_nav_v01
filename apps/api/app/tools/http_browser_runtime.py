@@ -17,6 +17,12 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._timeout = httpx.Timeout(connect=5.0, write=5.0, pool=5.0, read=30.0)
+        self._observation_timeout = httpx.Timeout(
+            connect=5.0,
+            write=5.0,
+            pool=5.0,
+            read=60.0,
+        )
         self._screenshot_timeout = httpx.Timeout(
             connect=5.0,
             write=5.0,
@@ -286,7 +292,10 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
         )
 
     def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
-        return self._get_json(f"/sessions/{session_id}/observation/current_page")
+        return self._get_json(
+            f"/sessions/{session_id}/observation/current_page",
+            timeout=self._observation_timeout,
+        )
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return self._get_json(

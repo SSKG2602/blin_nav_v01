@@ -4,8 +4,10 @@ import base64
 from typing import Any
 
 from browser_runtime.automation import (
+    classify_page_state,
     collect_semantic_page_signals,
     collect_search_result_candidates,
+    detect_location_blocked,
     detect_checkout_entry_readiness,
     extract_cart_evidence,
     extract_latest_order_evidence,
@@ -165,13 +167,104 @@ def extract_observation_from_snapshot(snapshot: dict[str, Any]) -> RuntimePageOb
 def extract_current_page_observation(page: Any) -> RuntimePageObservation:
     observed_url = safe_page_url(page)
     page_title = safe_page_title(page)
+    page_state = classify_page_state(page)
+
+    if detect_location_blocked(page):
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["location_blocked", page_state],
+            notes="Waiting for location selection.",
+        )
+
+    if page_state == "login":
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["login"],
+            notes="Sign-in required.",
+        )
+
+    if page_state == "blank":
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["navigating"],
+            notes="Navigation in progress.",
+        )
+
+    if page_state == "home":
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["home"],
+        )
+
+    if page_state == "search_results":
+        product_candidates = [
+            candidate
+            for candidate in collect_search_result_candidates(page, limit=3)
+            if candidate
+        ]
+        hints = infer_page_hints(
+            observed_url=observed_url,
+            page_title=page_title,
+            product_candidates=product_candidates,
+            primary_product=None,
+            cart_item_count=None,
+            checkout_ready=None,
+        )
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=hints or ["search_results"],
+            product_candidates=product_candidates,
+        )
+
+    if page_state == "product":
+        detail_evidence = extract_product_detail_evidence(page)
+        primary_product = _build_primary_from_detail(detail_evidence)
+        cart_evidence = extract_cart_evidence(page)
+        cart_item_count = cart_evidence.get("cart_item_count")
+        checkout_ready = cart_evidence.get("checkout_ready")
+        notes_list: list[str] = []
+        detail_notes = _normalize_text(detail_evidence.get("notes"))
+        if detail_notes:
+            notes_list.append(detail_notes)
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["product_detail"],
+            primary_product=primary_product,
+            cart_item_count=cart_item_count,
+            checkout_ready=checkout_ready,
+            notes=", ".join(notes_list) if notes_list else None,
+        )
+
+    if page_state in {"cart", "checkout"}:
+        cart_evidence = extract_cart_evidence(page)
+        cart_items = [
+            item
+            for item in (cart_evidence.get("cart_items") or [])
+            if isinstance(item, dict)
+        ]
+        checkout_ready = cart_evidence.get("checkout_ready")
+        if checkout_ready is None:
+            checkout_ready, _ = detect_checkout_entry_readiness(page)
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=[page_state],
+            cart_items=cart_items,
+            cart_item_count=cart_evidence.get("cart_item_count"),
+            checkout_ready=checkout_ready,
+            notes=", ".join(_normalize_text(item) for item in (cart_evidence.get("notes") or []) if _normalize_text(item)) or None,
+        )
 
     product_candidates = collect_search_result_candidates(page, limit=5)
     product_candidates = [candidate for candidate in product_candidates if candidate]
-
     detail_evidence = extract_product_detail_evidence(page)
     primary_product = _build_primary_from_detail(detail_evidence)
-
     cart_evidence = extract_cart_evidence(page)
     orders_evidence = extract_latest_order_evidence(page)
     cart_item_count = cart_evidence.get("cart_item_count")

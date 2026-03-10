@@ -109,7 +109,6 @@ def get_user_by_token(db: Session, *, token: str) -> UserProfile | None:
     user_row = db.query(UserORM).filter(UserORM.id == token_row.user_id).first()
     if user_row is None:
         return None
-    token_row.last_used_at = datetime.utcnow()
-    db.add(token_row)
-    db.commit()
+    # Hot auth lookups back the demo shell polling endpoints. Avoid per-request writes here
+    # so the live path does not exhaust the database pool under observation/screenshot polling.
     return _to_user_profile(user_row)

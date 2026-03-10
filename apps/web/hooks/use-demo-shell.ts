@@ -44,6 +44,18 @@ const SUPPORTED_LOCALES = ["en-IN", "hi-IN"];
 const VOICE_RECOGNITION_UNAVAILABLE_MESSAGE = "Voice recognition requires Chrome or Edge browser";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8100";
 const AUTH_STORAGE_KEY = "blindnav_auth_token";
+const FEMALE_VOICE_HINTS = [
+  "female",
+  "woman",
+  "priya",
+  "veena",
+  "samantha",
+  "zira",
+  "aria",
+  "heera",
+  "raveena",
+  "sangeeta"
+];
 
 function safeLocale(input: string): string {
   if (SUPPORTED_LOCALES.includes(input)) {
@@ -109,13 +121,58 @@ function getStoredAuthToken(): string | null {
   return window.localStorage.getItem(AUTH_STORAGE_KEY);
 }
 
+function normalizeVoiceCommand(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function stripLuminarPrefix(text: string): string {
+  return normalizeVoiceCommand(text).replace(/^luminar[\s,:-]*/, "").trim();
+}
+
+function selectPreferredSpeechVoice(locale: string): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return null;
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length === 0) {
+    return null;
+  }
+
+  const targetLocale = safeLocale(locale).toLowerCase();
+  const languagePrefix = targetLocale.split("-")[0] ?? targetLocale;
+  const localeMatches = voices.filter((voice) => {
+    const voiceLocale = voice.lang.toLowerCase();
+    return (
+      voiceLocale === targetLocale ||
+      voiceLocale === languagePrefix ||
+      voiceLocale.startsWith(`${languagePrefix}-`)
+    );
+  });
+
+  const pickPreferred = (candidates: SpeechSynthesisVoice[]) =>
+    candidates.find((voice) => {
+      const haystack = `${voice.name} ${voice.voiceURI}`.toLowerCase();
+      return FEMALE_VOICE_HINTS.some((hint) => haystack.includes(hint));
+    }) ?? candidates[0] ?? null;
+
+  return pickPreferred(localeMatches) ?? pickPreferred(voices);
+}
+
 export function useDemoShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<number | null>(null);
   const screenshotPollRef = useRef<number | null>(null);
+  const contextInFlightRef = useRef(false);
+  const observationInFlightRef = useRef(false);
+  const screenshotInFlightRef = useRef(false);
+  const contextBackoffUntilRef = useRef(0);
+  const runtimeBackoffUntilRef = useRef(0);
   const wakeRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const wakePhraseEnabledRef = useRef(false);
   const wakeActiveRef = useRef(false);
+  const voiceModeEnabledRef = useRef(false);
+  const voiceRestartTimeoutRef = useRef<number | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(null);
   const pendingVoiceCaptureRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -140,7 +197,7 @@ export function useDemoShell() {
   const [sessionHistory, setSessionHistory] = useState<SessionSummary[]>([]);
   const [runtimeObservation, setRuntimeObservation] = useState<RuntimeObservation | null>(null);
   const [runtimeScreenshot, setRuntimeScreenshot] = useState<RuntimeScreenshot | null>(null);
-  const [browserActivityStatus, setBrowserActivityStatus] = useState("Waiting for a live browser session.");
+  const [browserActivityStatus, setBrowserActivityStatus] = useState("No active session.");
   const [error, setError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -149,6 +206,7 @@ export function useDemoShell() {
   const [authPassword, setAuthPassword] = useState("");
   const [authDisplayName, setAuthDisplayName] = useState("");
   const [wakePhraseEnabled, setWakePhraseEnabled] = useState(false);
+  const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -162,12 +220,15 @@ export function useDemoShell() {
   const [orderCancelBusy, setOrderCancelBusy] = useState(false);
 
   useEffect(() => {
-    wakePhraseEnabledRef.current = wakePhraseEnabled;
-  }, [wakePhraseEnabled]);
+    voiceModeEnabledRef.current = voiceModeEnabled;
+    wakePhraseEnabledRef.current = voiceModeEnabled;
+    setWakePhraseEnabled(voiceModeEnabled);
+  }, [voiceModeEnabled]);
 
   useEffect(() => {
-    wakeActiveRef.current = wakeActive;
-  }, [wakeActive]);
+    wakeActiveRef.current = listening;
+    setWakeActive(listening);
+  }, [listening]);
 
   const appendTranscript = (item: TranscriptItem) => {
     setTranscript((prev) => [item, ...prev].slice(0, 120));
@@ -186,39 +247,91 @@ export function useDemoShell() {
     }
   };
 
+  const deriveRuntimeStatus = (observation: RuntimeObservation | null): string => {
+    if (!observation) {
+      return "Runtime unavailable.";
+    }
+
+    const hints = observation.detected_page_hints ?? [];
+    const notes = observation.notes ?? "";
+    if (observation.observed_url === "navigating" || hints.includes("navigating")) {
+      return "Navigating to BigBasket.";
+    }
+    if (hints.includes("location_blocked")) {
+      return "Waiting for location selection.";
+    }
+    if (hints.includes("login")) {
+      return "Sign-in required.";
+    }
+    if (hints.includes("cart")) {
+      return "Cart summary ready.";
+    }
+    if (hints.includes("product_detail") || hints.includes("product")) {
+      return "Product page loaded.";
+    }
+    if (hints.includes("search_results")) {
+      return "Search page loaded.";
+    }
+    if (notes.includes("location selection")) {
+      return "Waiting for location selection.";
+    }
+    if (notes.includes("Sign-in required")) {
+      return "Sign-in required.";
+    }
+    return browserActivityStatus;
+  };
+
   const refreshRuntimeObservationState = async (id: string, silent = false) => {
+    if (observationInFlightRef.current) {
+      return;
+    }
+    if (Date.now() < runtimeBackoffUntilRef.current) {
+      return;
+    }
+
+    observationInFlightRef.current = true;
     try {
       const observation = await getRuntimeObservation(id);
       setRuntimeObservation(observation);
+      runtimeBackoffUntilRef.current = 0;
+      setBrowserActivityStatus(deriveRuntimeStatus(observation));
     } catch (err) {
+      runtimeBackoffUntilRef.current = Date.now() + 10_000;
       if (!silent) {
         setError(err instanceof Error ? err.message : "Failed to refresh runtime observation.");
+        setBrowserActivityStatus("Runtime unavailable.");
       }
+    } finally {
+      observationInFlightRef.current = false;
     }
   };
 
   const refreshRuntimeScreenshotState = async (id: string, silent = false) => {
+    if (screenshotInFlightRef.current) {
+      return;
+    }
+    if (Date.now() < runtimeBackoffUntilRef.current) {
+      return;
+    }
+
+    screenshotInFlightRef.current = true;
     try {
       const screenshot = await getRuntimeScreenshot(id);
       setRuntimeScreenshot(screenshot);
+      runtimeBackoffUntilRef.current = 0;
     } catch (err) {
+      runtimeBackoffUntilRef.current = Date.now() + 10_000;
       if (!silent) {
         setError(err instanceof Error ? err.message : "Failed to refresh runtime screenshot.");
       }
+    } finally {
+      screenshotInFlightRef.current = false;
     }
   };
 
   const refreshRuntimeState = async (id: string) => {
-    try {
-      const [observation, screenshot] = await Promise.all([
-        getRuntimeObservation(id),
-        getRuntimeScreenshot(id)
-      ]);
-      setRuntimeObservation(observation);
-      setRuntimeScreenshot(screenshot);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh runtime state.");
-    }
+    await refreshRuntimeObservationState(id);
+    await refreshRuntimeScreenshotState(id, true);
   };
 
   const refreshAmazonConnectionStatus = async (id: string, silent = false): Promise<AmazonConnectionStatus | null> => {
@@ -239,7 +352,15 @@ export function useDemoShell() {
     }
   };
 
-  const refreshContext = async (id: string) => {
+  const refreshContext = async (id: string, silent = false) => {
+    if (contextInFlightRef.current) {
+      return;
+    }
+    if (Date.now() < contextBackoffUntilRef.current) {
+      return;
+    }
+
+    contextInFlightRef.current = true;
     try {
       const ctx = await getSessionContext(id);
       setContext(ctx);
@@ -249,10 +370,21 @@ export function useDemoShell() {
       } else {
         setCheckpoint(null);
       }
-      await refreshRuntimeObservationState(id, true);
+      contextBackoffUntilRef.current = 0;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh session context.");
+      contextBackoffUntilRef.current = Date.now() + 10_000;
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "Failed to refresh session context.");
+      }
+    } finally {
+      contextInFlightRef.current = false;
     }
+  };
+
+  const refreshAfterMeaningfulTransition = async (id: string) => {
+    await refreshContext(id, true);
+    await refreshRuntimeObservationState(id, true);
+    await refreshRuntimeScreenshotState(id, true);
   };
 
   const deleteSessionById = async (id: string, allowNotFound = false) => {
@@ -297,16 +429,18 @@ export function useDemoShell() {
   const startPolling = (id: string) => {
     stopPolling();
     pollRef.current = window.setInterval(() => {
-      void refreshContext(id);
-    }, 3000);
+      void refreshContext(id, true);
+    }, 5000);
   };
 
   const startScreenshotPolling = (id: string) => {
     stopScreenshotPolling();
+    void refreshRuntimeObservationState(id, true);
     void refreshRuntimeScreenshotState(id, true);
     screenshotPollRef.current = window.setInterval(() => {
+      void refreshRuntimeObservationState(id, true);
       void refreshRuntimeScreenshotState(id, true);
-    }, 2000);
+    }, 5000);
   };
 
   const stopSpeechPlayback = () => {
@@ -320,8 +454,12 @@ export function useDemoShell() {
     setSpeaking(false);
   };
 
-  const stopListening = () => {
+  const stopRecognition = () => {
     pendingVoiceCaptureRef.current = false;
+    if (voiceRestartTimeoutRef.current !== null) {
+      window.clearTimeout(voiceRestartTimeoutRef.current);
+      voiceRestartTimeoutRef.current = null;
+    }
     if (listeningTimeoutRef.current !== null) {
       window.clearTimeout(listeningTimeoutRef.current);
       listeningTimeoutRef.current = null;
@@ -342,6 +480,17 @@ export function useDemoShell() {
     setListening(false);
   };
 
+  const disableVoiceMode = () => {
+    voiceModeEnabledRef.current = false;
+    setVoiceModeEnabled(false);
+    stopRecognition();
+    setBrowserActivityStatus(sessionId ? "Session active." : "No active session.");
+  };
+
+  const stopListening = () => {
+    disableVoiceMode();
+  };
+
   const stopWakePhraseListener = () => {
     wakePhraseEnabledRef.current = false;
     setWakePhraseEnabled(false);
@@ -360,7 +509,7 @@ export function useDemoShell() {
     stopMediaStream(stream);
   };
 
-  const sendRecognizedUserText = (text: string) => {
+  const sendRecognizedUserText = (text: string, appendToTranscript = true) => {
     const ws = wsRef.current;
     const normalized = text.trim();
     if (!normalized || !ws || ws.readyState !== WebSocket.OPEN) {
@@ -374,80 +523,14 @@ export function useDemoShell() {
         locale: safeLocale(locale)
       })
     );
-    appendTranscript(makeTranscript("user", normalized));
+    if (appendToTranscript) {
+      appendTranscript(makeTranscript("user", normalized));
+    }
     setBrowserActivityStatus(`Sent voice command: ${normalized}`);
     return true;
   };
 
-  const startWakePhraseListener = () => {
-    const SpeechRecognitionCtor = getSpeechRecognitionConstructor();
-    if (!SpeechRecognitionCtor) {
-      setSpeechSupported(false);
-      setVoiceSupportMessage(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
-      setError(VOICE_RECOGNITION_UNAVAILABLE_MESSAGE);
-      return false;
-    }
-
-    stopWakePhraseListener();
-
-    const recognition = new SpeechRecognitionCtor();
-    wakeRecognitionRef.current = recognition;
-    wakePhraseEnabledRef.current = true;
-    setWakePhraseEnabled(true);
-    recognition.lang = safeLocale(locale);
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event: BrowserSpeechRecognitionEventLike) => {
-      const indexedEvent = event as BrowserSpeechRecognitionEventLike & { resultIndex?: number };
-      const startIndex = typeof indexedEvent.resultIndex === "number" ? indexedEvent.resultIndex : 0;
-      for (let index = startIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (!result?.isFinal) {
-          continue;
-        }
-        const transcriptText = result[0]?.transcript?.trim().toLowerCase() ?? "";
-        if (!transcriptText || !transcriptText.includes("luminar")) {
-          continue;
-        }
-
-        wakeActiveRef.current = true;
-        setWakeActive(true);
-        appendTranscript(makeTranscript("system", 'Wake phrase "Luminar" detected. Listening for commands.'));
-        setBrowserActivityStatus('Wake phrase detected. Listening for voice commands.');
-        stopWakePhraseListener();
-        if (connected && wsRef.current?.readyState === WebSocket.OPEN) {
-          void startListening();
-        } else {
-          pendingVoiceCaptureRef.current = true;
-        }
-        return;
-      }
-    };
-    recognition.onerror = () => {
-      setError("Wake phrase listening failed. Please try again.");
-      setBrowserActivityStatus("Wake phrase listening failed.");
-      stopWakePhraseListener();
-    };
-    recognition.onend = () => {
-      if (wakeRecognitionRef.current === recognition) {
-        wakeRecognitionRef.current = null;
-      }
-      setWakePhraseEnabled(false);
-      if (!wakeActiveRef.current && wakePhraseEnabledRef.current) {
-        wakeRecognitionRef.current = recognition;
-        recognition.start();
-        wakePhraseEnabledRef.current = true;
-        setWakePhraseEnabled(true);
-      }
-    };
-    recognition.start();
-    return true;
-  };
-
-  const resetLocalConnectionState = () => {
-    stopListening();
-    stopWakePhraseListener();
+  const resetSessionState = () => {
     stopSpeechPlayback();
     stopScreenshotPolling();
     if (wsRef.current) {
@@ -457,10 +540,6 @@ export function useDemoShell() {
     setConnected(false);
     setConnecting(false);
     setSessionId(null);
-    wakeActiveRef.current = false;
-    setWakeActive(false);
-    wakePhraseEnabledRef.current = false;
-    setWakePhraseEnabled(false);
     setContext(null);
     setCheckpoint(null);
     setClarification(null);
@@ -472,20 +551,30 @@ export function useDemoShell() {
     setAmazonCookieInput("");
     setAmazonAuthBusy(false);
     setAmazonAuthNote(null);
-    setBrowserActivityStatus("Waiting for a live browser session.");
+    setBrowserActivityStatus(voiceModeEnabledRef.current ? "Voice enabled. No active session." : "No active session.");
+    contextInFlightRef.current = false;
+    observationInFlightRef.current = false;
+    screenshotInFlightRef.current = false;
+    contextBackoffUntilRef.current = 0;
+    runtimeBackoffUntilRef.current = 0;
     stopPolling();
+  };
+
+  const resetLocalConnectionState = () => {
+    disableVoiceMode();
+    resetSessionState();
   };
 
   const closeConnection = async () => {
     if (!sessionId) {
-      resetLocalConnectionState();
+      resetSessionState();
       return;
     }
 
     setError(null);
     try {
       await deleteSessionById(sessionId);
-      resetLocalConnectionState();
+      resetSessionState();
       if (getStoredAuthToken()) {
         void refreshSessionHistory();
       } else {
@@ -559,6 +648,10 @@ export function useDemoShell() {
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = safeLocale(payloadLocale);
       utterance.rate = 0.9;
+      const preferredVoice = selectPreferredSpeechVoice(payloadLocale);
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
       utterance.onend = () => setSpeaking(false);
       utterance.onerror = () => setSpeaking(false);
       setSpeaking(true);
@@ -581,7 +674,7 @@ export function useDemoShell() {
           ? payload.data.message
           : "Live session connected.";
       appendTranscript(makeTranscript("system", message));
-      setBrowserActivityStatus("Browser session connected. Waiting for the live start event.");
+      setBrowserActivityStatus("Session active.");
       return;
     }
 
@@ -589,9 +682,9 @@ export function useDemoShell() {
       const message =
         typeof payload.data.message === "string" && payload.data.message
           ? payload.data.message
-          : "Wake path active. Listening for commands.";
+          : "Session active. Voice commands are ready.";
       appendTranscript(makeTranscript("system", message));
-      setBrowserActivityStatus("Live session started. Waiting for the user's shopping request.");
+      setBrowserActivityStatus("Session active.");
       return;
     }
 
@@ -620,7 +713,7 @@ export function useDemoShell() {
         response.spoken_summary?.trim() || `Browser state changed to ${response.new_state}.`
       );
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -648,7 +741,7 @@ export function useDemoShell() {
       );
       setBrowserActivityStatus("Browser flow paused for a sensitive checkpoint.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -668,7 +761,7 @@ export function useDemoShell() {
       );
       setBrowserActivityStatus("Waiting for clarification before the browser continues.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -692,7 +785,7 @@ export function useDemoShell() {
       );
       setBrowserActivityStatus("Clarification response sent. Resuming browser flow.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -703,7 +796,7 @@ export function useDemoShell() {
       appendTranscript(makeTranscript("system", `Checkpoint resolved: ${incoming.status}`));
       setBrowserActivityStatus("Checkpoint resolved. Browser flow can continue.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -716,7 +809,7 @@ export function useDemoShell() {
       appendTranscript(makeTranscript("warning", message));
       setBrowserActivityStatus("Waiting for final purchase confirmation.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -732,7 +825,7 @@ export function useDemoShell() {
       );
       setBrowserActivityStatus("Final confirmation resolved.");
       if (sessionId) {
-        void refreshContext(sessionId);
+        void refreshAfterMeaningfulTransition(sessionId);
       }
       return;
     }
@@ -757,14 +850,65 @@ export function useDemoShell() {
     }
   };
 
-  const startLiveSession = async () => {
-    if (connecting || connected) {
-      return;
+  const handleLocalVoiceCommand = async (text: string): Promise<boolean> => {
+    const normalized = stripLuminarPrefix(text);
+    if (!normalized) {
+      return true;
+    }
+
+    const appendRecognizedText = () => {
+      appendTranscript(makeTranscript("user", normalized));
+    };
+
+    if (normalized === "start session" || normalized === "start a session") {
+      appendRecognizedText();
+      await startLiveSession();
+      return true;
+    }
+
+    if (normalized === "connect bigbasket" || normalized === "connect to bigbasket") {
+      appendRecognizedText();
+      await connectBigBasket();
+      return true;
+    }
+
+    if (
+      normalized === "cancel session" ||
+      normalized === "end session" ||
+      normalized === "close session" ||
+      normalized === "cancel it" ||
+      normalized === "end it" ||
+      normalized === "close it"
+    ) {
+      appendRecognizedText();
+      await closeConnection();
+      return true;
+    }
+
+    if (
+      normalized === "stop listening" ||
+      normalized === "disable voice" ||
+      normalized === "stop voice"
+    ) {
+      appendRecognizedText();
+      disableVoiceMode();
+      return true;
+    }
+
+    return false;
+  };
+
+  const startLiveSession = async (): Promise<string | null> => {
+    if (connecting) {
+      return null;
+    }
+    if (sessionId) {
+      setBrowserActivityStatus("Session active.");
+      return sessionId;
     }
 
     setError(null);
     setConnecting(true);
-    setWakeActive(false);
 
     try {
       if (getStoredAuthToken()) {
@@ -788,6 +932,7 @@ export function useDemoShell() {
         setLocale(safeLocale(live.locale));
       }
       await refreshContext(live.session_id);
+      await refreshRuntimeObservationState(live.session_id, true);
       await refreshRuntimeScreenshotState(live.session_id, true);
       await refreshAmazonConnectionStatus(live.session_id, true);
       await refreshSessionHistory();
@@ -807,20 +952,10 @@ export function useDemoShell() {
             locale: safeLocale(locale)
           })
         );
-        if (pendingVoiceCaptureRef.current) {
-          void startListening();
-        }
       };
 
       ws.onclose = () => {
-        setConnected(false);
-        setConnecting(false);
-        setWakeActive(false);
-        setWakePhraseEnabled(false);
-        setListening(false);
-        stopPolling();
-        stopScreenshotPolling();
-        stopSpeechPlayback();
+        resetSessionState();
       };
 
       ws.onerror = () => {
@@ -835,10 +970,11 @@ export function useDemoShell() {
           setError("Failed to parse incoming live event.");
         }
       };
+      return live.session_id;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start live session.");
       setConnecting(false);
-      setWakeActive(false);
+      return null;
     }
   };
 
@@ -924,8 +1060,7 @@ export function useDemoShell() {
   };
 
   const startListening = async () => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN || listening) {
+    if (listening) {
       return;
     }
 
@@ -962,33 +1097,56 @@ export function useDemoShell() {
           const transcriptText = result[0]?.transcript?.trim() ?? "";
           if (transcriptText) {
             transcriptHintRef.current = transcriptText;
-            sendRecognizedUserText(transcriptText);
+            void (async () => {
+              const handledLocally = await handleLocalVoiceCommand(transcriptText);
+              if (handledLocally) {
+                return;
+              }
+
+              const commandText = stripLuminarPrefix(transcriptText) || transcriptText.trim();
+              if (!sessionId || !connected || wsRef.current?.readyState !== WebSocket.OPEN) {
+                appendTranscript(makeTranscript("user", commandText));
+                setBrowserActivityStatus("Start a session first.");
+                return;
+              }
+
+              sendRecognizedUserText(commandText);
+            })();
           }
         }
       };
       recognition.onerror = () => {
         setError("Speech recognition failed. You can still type commands.");
         setBrowserActivityStatus("Speech recognition failed. Type the command instead.");
-        stopListening();
+        setListening(false);
+        recognitionRef.current = null;
       };
       recognition.onend = () => {
         setListening(false);
         recognitionRef.current = null;
+        if (voiceModeEnabledRef.current) {
+          voiceRestartTimeoutRef.current = window.setTimeout(() => {
+            if (voiceModeEnabledRef.current && !recognitionRef.current) {
+              void startListening();
+            }
+          }, 300);
+        }
       };
       recognition.start();
 
       setListening(true);
+      voiceModeEnabledRef.current = true;
+      setVoiceModeEnabled(true);
       pendingVoiceCaptureRef.current = false;
-      appendTranscript(makeTranscript("system", "Listening for your voice command."));
-      setBrowserActivityStatus("Listening for voice commands.");
+      setBrowserActivityStatus(sessionId ? "Voice enabled and listening." : "Voice enabled. No active session.");
     } catch (err) {
-      stopListening();
+      disableVoiceMode();
       setError(err instanceof Error ? err.message : "Microphone access failed.");
     }
   };
 
   const startWakeSequence = async () => {
-    if (connecting || wakePhraseEnabled || wakeActive) {
+    if (voiceModeEnabled || listening) {
       return;
     }
 
@@ -1003,26 +1161,14 @@ export function useDemoShell() {
     setSpeechSupported(true);
     setError(null);
     setVoiceSupportMessage(null);
-    wakeActiveRef.current = false;
-    setWakeActive(false);
     pendingVoiceCaptureRef.current = false;
 
     try {
       await ensureMicrophonePermission();
-      setBrowserActivityStatus('Listening for the wake phrase "Luminar"...');
-      appendTranscript(makeTranscript("system", 'Microphone ready. Say "Luminar" to begin speaking.'));
-
-      if (!connected) {
-        await startLiveSession();
-        if (!wsRef.current) {
-          return;
-        }
-      }
-
-      startWakePhraseListener();
+      appendTranscript(makeTranscript("system", "Microphone ready. Voice enabled."));
+      await startListening();
     } catch (err) {
-      setWakePhraseEnabled(false);
-      setWakeActive(false);
+      disableVoiceMode();
       setError(err instanceof Error ? err.message : "Microphone access failed.");
     }
   };
@@ -1032,7 +1178,6 @@ export function useDemoShell() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
     }
-    stopListening();
     stopSpeechPlayback();
     ws.send(JSON.stringify({ type: "interrupt", locale: safeLocale(locale) }));
   };
@@ -1042,7 +1187,6 @@ export function useDemoShell() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
     }
-    stopListening();
     stopSpeechPlayback();
     ws.send(JSON.stringify({ type: "cancel", locale: safeLocale(locale) }));
   };
@@ -1072,7 +1216,7 @@ export function useDemoShell() {
       });
       setCheckpoint(resolved);
       appendTranscript(makeTranscript("system", `Checkpoint ${resolved.status.toLowerCase()}.`));
-      await refreshContext(sessionId);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resolve checkpoint.");
     }
@@ -1107,7 +1251,7 @@ export function useDemoShell() {
           approved ? "Final purchase confirmation approved." : "Final purchase confirmation rejected."
         )
       );
-      await refreshContext(sessionId);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resolve final confirmation.");
     }
@@ -1143,7 +1287,7 @@ export function useDemoShell() {
       appendTranscript(
         makeTranscript("system", `Requested cart removal for ${title ?? itemId ?? "selected item"}.`)
       );
-      await refreshContext(sessionId);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove cart item.");
     }
@@ -1170,7 +1314,7 @@ export function useDemoShell() {
           `Updated quantity for ${title ?? itemId ?? "selected item"} to ${quantity}.`
         )
       );
-      await refreshContext(sessionId);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update cart quantity.");
     }
@@ -1184,7 +1328,7 @@ export function useDemoShell() {
       setBrowserActivityStatus("Loading the latest order details from BigBasket.");
       await loadLatestOrderSnapshot(sessionId);
       appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
-      await refreshContext(sessionId);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load latest order snapshot.");
     }
@@ -1201,8 +1345,7 @@ export function useDemoShell() {
       const result: OrderCancellationResult = await cancelLatestOrder(sessionId);
       appendTranscript(makeTranscript(result.cancelled ? "assistant" : "warning", result.spoken_summary));
       setBrowserActivityStatus(result.spoken_summary);
-      await refreshContext(sessionId);
-      await refreshRuntimeScreenshotState(sessionId, true);
+      await refreshAfterMeaningfulTransition(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel the latest order.");
     } finally {
@@ -1211,8 +1354,16 @@ export function useDemoShell() {
   };
 
   const connectBigBasket = async () => {
-    if (!sessionId) {
-      setError("Start a live session before connecting BigBasket.");
+    let activeSessionId = sessionId;
+    if (!activeSessionId) {
+      activeSessionId = await startLiveSession();
+    }
+    if (!activeSessionId) {
+      setError("Failed to start a live session for BigBasket.");
+      return;
+    }
+    if (amazonConnected) {
+      setAmazonAuthNote("BigBasket Connected ✓");
       return;
     }
     setError(null);
@@ -1300,6 +1451,7 @@ export function useDemoShell() {
     wakePhraseEnabled,
     setWakePhraseEnabled,
     wakeActive,
+    voiceModeEnabled,
     connected,
     connecting,
     locale,
@@ -1338,6 +1490,8 @@ export function useDemoShell() {
     signupUser,
     logoutUser,
     startWakeSequence,
+    enableVoiceMode: startWakeSequence,
+    disableVoiceMode,
     startLiveSession,
     startListening,
     stopListening,

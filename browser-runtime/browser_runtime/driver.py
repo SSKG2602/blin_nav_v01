@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
-from typing import Any, Dict
+from typing import Any, Dict, TypeVar
 from uuid import UUID
 
+from browser_runtime.automation.helpers import classify_page_state, detect_location_blocked
 from browser_runtime.observation.extractor import (
     extract_current_page_observation,
     extract_current_page_screenshot,
@@ -18,6 +20,7 @@ except ImportError:  # Playwright not installed
     sync_playwright = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+_PageResult = TypeVar("_PageResult")
 
 
 def _navigating_observation_payload() -> dict[str, Any]:
@@ -310,24 +313,35 @@ class BrowserSessionManager:
             self._pages[session_id] = page
             return page
 
+    def _get_or_create_page_for_session(self, session_id: UUID) -> Page | DummyPage:
+        page = self._pages.get(session_id)
+        if page is not None:
+            return page
+        return self._create_page_for_session(session_id)
+
+    def run_with_session_page(
+        self,
+        session_id: UUID,
+        fn: Callable[[Page | DummyPage], _PageResult],
+    ) -> _PageResult:
+        def _run() -> _PageResult:
+            self._ensure_browser_started()
+            page = self._get_or_create_page_for_session(session_id)
+            return fn(page)
+
+        return self._executor.submit(_run).result()
+
     def get_page(self, session_id: UUID) -> Page | DummyPage:
         def _run() -> Page | DummyPage:
             self._ensure_browser_started()
-
-            if session_id in self._pages:
-                return self._pages[session_id]
-
-            return self._create_page_for_session(session_id)
+            return self._get_or_create_page_for_session(session_id)
 
         return self._executor.submit(_run).result()
 
     def navigate_to(self, session_id: UUID, url: str) -> None:
         def _run() -> None:
             self._ensure_browser_started()
-            if session_id in self._pages:
-                page = self._pages[session_id]
-            else:
-                page = self._create_page_for_session(session_id)
+            page = self._get_or_create_page_for_session(session_id)
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
         self._executor.submit(_run).result()
@@ -340,10 +354,7 @@ class BrowserSessionManager:
 
         def _run() -> str | None:
             self._ensure_browser_started()
-            if session_id in self._pages:
-                page = self._pages[session_id]
-            else:
-                page = self._create_page_for_session(session_id)
+            page = self._get_or_create_page_for_session(session_id)
             current_url = getattr(page, "url", None)
             return current_url if isinstance(current_url, str) and current_url else None
 
@@ -357,11 +368,25 @@ class BrowserSessionManager:
 
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
-            if session_id in self._pages:
-                page = self._pages[session_id]
-            else:
-                page = self._create_page_for_session(session_id)
-            return extract_current_page_observation(page).model_dump()
+            page = self._get_or_create_page_for_session(session_id)
+            payload = extract_current_page_observation(page).model_dump()
+            blocked_hints: list[str] = []
+            blocked_notes: list[str] = []
+            if detect_location_blocked(page):
+                blocked_hints.append("location_blocked")
+                blocked_notes.append("Waiting for location selection.")
+            page_state = classify_page_state(page)
+            if page_state == "login":
+                blocked_hints.append("login")
+                blocked_notes.append("Sign-in required.")
+            if blocked_hints:
+                existing_hints = list(payload.get("detected_page_hints") or [])
+                payload["detected_page_hints"] = list(dict.fromkeys([*blocked_hints, *existing_hints]))
+                existing_notes = str(payload.get("notes") or "").strip()
+                payload["notes"] = " ".join(
+                    part for part in [*blocked_notes, existing_notes or None] if part
+                )
+            return payload
 
         return self._executor.submit(_run).result()
 
@@ -381,10 +406,7 @@ class BrowserSessionManager:
 
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
-            if session_id in self._pages:
-                page = self._pages[session_id]
-            else:
-                page = self._create_page_for_session(session_id)
+            page = self._get_or_create_page_for_session(session_id)
             return extract_current_page_screenshot(page).model_dump()
 
         return self._executor.submit(_run).result()
@@ -392,10 +414,7 @@ class BrowserSessionManager:
     def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
-            if session_id in self._pages:
-                page = self._pages[session_id]
-            else:
-                page = self._create_page_for_session(session_id)
+            page = self._get_or_create_page_for_session(session_id)
             context = self._contexts.get(session_id)
             current_url = getattr(page, "url", None)
             current_url_text = current_url if isinstance(current_url, str) and current_url else None
@@ -451,9 +470,7 @@ class BrowserSessionManager:
 
         def _run() -> None:
             self._ensure_browser_started()
-            if session_id not in self._pages:
-                self._create_page_for_session(session_id)
-            page = self._pages[session_id]
+            page = self._get_or_create_page_for_session(session_id)
             context = self._contexts.get(session_id)
             if context is None:
                 raise RuntimeError("No Playwright browser context is available for this session.")

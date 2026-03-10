@@ -736,16 +736,20 @@ def _query_matches_url(query: str, url: str | None) -> bool:
 
 def dismiss_common_interruptions(page: Any) -> list[str]:
     notes: list[str] = []
+    dismissed = 0
     for selector in MODAL_DISMISS_SELECTORS:
         locator = safe_locator(page, selector)
         if locator is None:
             continue
         target = _first(locator)
-        visible = safe_is_visible(target)
+        visible = safe_is_visible(target, timeout_ms=250)
         if visible is False:
             continue
-        if safe_click(target):
+        if safe_click(target, timeout_ms=600):
             notes.append(f"dismissed:{selector}")
+            dismissed += 1
+        if dismissed >= 2:
+            break
     return notes
 
 
@@ -846,17 +850,35 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
     if not query_text:
         notes.append("query_missing")
         return False, notes
+
+    if detect_location_blocked(page):
+        notes.append("location_blocked")
+        return False, notes
+
+    page_state = classify_page_state(page)
+    if page_state == "login":
+        notes.append("sign_in_required")
+        return False, notes
+    if page_state == "checkout":
+        notes.append("unexpected_checkout_state")
+        return False, notes
+
+    current_url = safe_page_url(page)
+    if _query_matches_url(query_text, current_url):
+        notes.append("search_results_already_loaded")
+        return True, notes
+
     fallback_url = f"https://www.bigbasket.com/ps/?q={query_text.replace(' ', '+')}"
 
     for attempt in range(2):
         target = None
         for selector in SEARCH_INPUT_SELECTORS:
-            safe_wait_for_selector(page, selector, timeout_ms=3500)
+            safe_wait_for_selector(page, selector, timeout_ms=1000)
             locator = safe_locator(page, selector)
             if locator is None:
                 continue
             candidate = _first(locator)
-            visible = safe_is_visible(candidate)
+            visible = safe_is_visible(candidate, timeout_ms=300)
             if visible is False:
                 continue
             target = candidate
@@ -869,7 +891,7 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
             notes.append("search_box_not_found")
             return False, notes
 
-        if not safe_fill(target, query_text):
+        if not safe_fill(target, query_text, timeout_ms=1000):
             if safe_goto(page, fallback_url):
                 notes.append("search_fill_failed_used_url_fallback")
                 return True, notes
@@ -881,7 +903,7 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
                 return True, notes
             notes.append("search_submit_failed")
             return False, notes
-        safe_wait_for_load(page)
+        safe_wait_for_load(page, timeout_ms=4000)
         return True, notes
 
     notes.append("search_submit_unresolved")

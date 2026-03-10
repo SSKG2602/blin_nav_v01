@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import logging
+from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Response, status
@@ -33,6 +35,7 @@ from browser_runtime.driver import browser_session_manager
 from browser_runtime.observation.models import RuntimeOrderCancellationResult
 
 logger = logging.getLogger(__name__)
+_ActionResult = TypeVar("_ActionResult")
 
 router = APIRouter(prefix="/sessions", tags=["actions"])
 
@@ -83,6 +86,13 @@ def _log_action(action: str, session_id: UUID, **fields: str | None) -> None:
     logger.info("browser_runtime_action %s", payload)
 
 
+def _run_page_action(
+    session_id: UUID,
+    fn: Callable[[Any], _ActionResult],
+) -> _ActionResult:
+    return browser_session_manager.run_with_session_page(session_id, fn)
+
+
 @router.post("/{session_id}/actions/navigate_to_search_results", status_code=status.HTTP_204_NO_CONTENT)
 def navigate_to_search_results(
     session_id: UUID,
@@ -94,47 +104,54 @@ def navigate_to_search_results(
         query=payload.query,
         merchant=payload.merchant,
     )
-    page = browser_session_manager.get_page(session_id)
-    notes: list[str] = []
     try:
-        notes.extend(dismiss_common_interruptions(page))
+        def _run(page: Any) -> list[str]:
+            notes: list[str] = []
+            notes.extend(dismiss_common_interruptions(page))
 
-        if detect_location_blocked(page):
-            notes.append("location_blocked_hard_stop")
-            logger.warning(
-                "navigate_to_search_results: location blocked, aborting session=%s", session_id
-            )
-            return _accepted_response()
+            if detect_location_blocked(page):
+                notes.append("location_blocked_hard_stop")
+                logger.warning(
+                    "navigate_to_search_results: location blocked, aborting session=%s", session_id
+                )
+                return notes
 
-        page_state = classify_page_state(page)
-        if page_state not in ("home", "search_results", "blank"):
-            notes.append(f"unexpected_page_state_before_search:{page_state}")
-            if not safe_goto(page, BB_HOME_URL):
-                notes.append("home_navigation_failed")
+            page_state = classify_page_state(page)
+            if page_state == "login":
+                notes.append("sign_in_required")
+                logger.warning(
+                    "navigate_to_search_results: sign-in required session=%s", session_id
+                )
+                return notes
 
-        current_url = safe_page_url(page)
+            if page_state not in ("home", "search_results", "blank"):
+                notes.append(f"unexpected_page_state_before_search:{page_state}")
+                if not safe_goto(page, BB_HOME_URL):
+                    notes.append("home_navigation_failed")
+                    return notes
 
-        if action_guard.should_skip_duplicate_search(
-            session_id,
-            query=payload.query,
-            current_url=current_url,
-        ):
-            notes.append("duplicate_search_skipped")
-            logger.info(
-                "navigate_to_search_results_summary %s",
-                {"session_id": str(session_id), "notes": notes},
-            )
-            return _accepted_response()
-
-        submitted, submit_notes = submit_search_query(page, payload.query)
-        notes.extend(submit_notes)
-        if submitted:
-            action_guard.record_search(
+            current_url = safe_page_url(page)
+            if action_guard.should_skip_duplicate_search(
                 session_id,
                 query=payload.query,
-                current_url=safe_page_url(page),
-            )
+                current_url=current_url,
+            ):
+                notes.append("duplicate_search_skipped")
+                return notes
+
+            submitted, submit_notes = submit_search_query(page, payload.query)
+            notes.extend(submit_notes)
+            if submitted:
+                action_guard.record_search(
+                    session_id,
+                    query=payload.query,
+                    current_url=safe_page_url(page),
+                )
+            return notes
+
+        notes = _run_page_action(session_id, _run)
     except Exception as exc:
+        notes = []
         logger.error(
             "navigate_to_search_results failed for session %s: %s",
             session_id,
@@ -159,51 +176,81 @@ def inspect_product_page(
         candidate_url=payload.candidate_url,
         candidate_title=payload.candidate_title,
     )
-    notes: list[str] = []
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes.extend(dismiss_common_interruptions(page))
-        if not payload.candidate_url:
+        def _run(page: Any) -> dict[str, Any]:
+            notes: list[str] = []
+            notes.extend(dismiss_common_interruptions(page))
             page_state = classify_page_state(page)
-            if page_state not in ("search_results", "product"):
+            if detect_location_blocked(page):
+                notes.append("inspect_product_location_blocked")
+                return {
+                    "opened": False,
+                    "selected_candidate": None,
+                    "evidence": extract_product_detail_evidence(page),
+                    "notes": notes,
+                }
+            if not payload.candidate_url and page_state not in ("search_results", "product"):
                 notes.append(f"inspect_product_wrong_state:{page_state}")
                 logger.warning(
                     "inspect_product_page: wrong page state %s, session=%s", page_state, session_id
                 )
-        candidate = None
-        opened = False
-        if payload.candidate_url:
-            candidate = {
-                "title": payload.candidate_title,
-                "url": payload.candidate_url,
-            }
-            opened = safe_goto(page, payload.candidate_url)
-            if not opened:
-                notes.append("candidate_navigation_failed")
+                return {
+                    "opened": False,
+                    "selected_candidate": None,
+                    "evidence": extract_product_detail_evidence(page),
+                    "notes": notes,
+                }
+
+            candidate = None
+            opened = False
+            if payload.candidate_url:
+                candidate = {
+                    "title": payload.candidate_title,
+                    "url": payload.candidate_url,
+                }
+                opened = safe_goto(page, payload.candidate_url)
+                if not opened:
+                    notes.append("candidate_navigation_failed")
+                else:
+                    action_guard.record_product_open(
+                        session_id,
+                        current_url=safe_page_url(page),
+                    )
+            elif page_state == "product":
+                opened = True
+                candidate = {
+                    "title": safe_page_url(page),
+                    "url": safe_page_url(page),
+                }
+                notes.append("product_already_open")
             else:
-                action_guard.record_product_open(
-                    session_id,
-                    current_url=safe_page_url(page),
+                opened, candidate, selection_notes = open_best_search_result(
+                    page,
+                    session_id=session_id,
+                    query=payload.query,
                 )
-        else:
-            opened, candidate, selection_notes = open_best_search_result(
-                page,
-                session_id=session_id,
-                query=payload.query,
-            )
-            notes.extend(selection_notes)
-        evidence = extract_product_detail_evidence(page)
-        if not opened:
-            notes.append("product_open_not_confirmed")
+                notes.extend(selection_notes)
+
+            evidence = extract_product_detail_evidence(page)
+            if not opened:
+                notes.append("product_open_not_confirmed")
+            return {
+                "opened": opened,
+                "selected_candidate": candidate,
+                "evidence": evidence,
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "inspect_product_page_summary %s",
             {
                 "session_id": str(session_id),
                 "page_type": payload.page_type,
-                "opened": opened,
-                "selected_candidate": candidate,
-                "evidence": evidence,
-                "notes": notes or None,
+                "opened": result["opened"],
+                "selected_candidate": result["selected_candidate"],
+                "evidence": result["evidence"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -224,30 +271,50 @@ def verify_product_variant(
         color_hint=payload.color_hint,
     )
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        selected, variant_notes, signature = select_variant_option(
-            page,
-            session_id=session_id,
-            variant_hint=payload.variant_hint,
-            size_hint=payload.size_hint,
-            color_hint=payload.color_hint,
-        )
-        notes.extend(variant_notes)
-        evidence = extract_product_detail_evidence(page)
-        strong_boundary = bool(
-            evidence.get("title")
-            and (evidence.get("price_text") or evidence.get("availability_text"))
-        )
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            page_state = classify_page_state(page)
+            if page_state != "product":
+                notes.append(f"verify_variant_wrong_state:{page_state}")
+                return {
+                    "selected": False,
+                    "signature": None,
+                    "strong_boundary": False,
+                    "notes": notes,
+                    "evidence": extract_product_detail_evidence(page),
+                }
+
+            selected, variant_notes, signature = select_variant_option(
+                page,
+                session_id=session_id,
+                variant_hint=payload.variant_hint,
+                size_hint=payload.size_hint,
+                color_hint=payload.color_hint,
+            )
+            notes.extend(variant_notes)
+            evidence = extract_product_detail_evidence(page)
+            strong_boundary = bool(
+                evidence.get("title")
+                and (evidence.get("price_text") or evidence.get("availability_text"))
+            )
+            return {
+                "selected": selected,
+                "signature": signature,
+                "strong_boundary": strong_boundary,
+                "notes": notes,
+                "evidence": evidence,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "product_variant_info %s",
             {
                 "session_id": str(session_id),
-                "variant_selected": selected,
-                "variant_signature": signature,
-                "strong_boundary": strong_boundary,
-                "notes": notes or None,
-                **evidence,
+                "variant_selected": result["selected"],
+                "variant_signature": result["signature"],
+                "strong_boundary": result["strong_boundary"],
+                "notes": result["notes"] or None,
+                **result["evidence"],
             },
         )
     except Exception as exc:
@@ -268,23 +335,39 @@ def select_variant(
         color_hint=payload.color_hint,
     )
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        selected, selection_notes, signature = select_variant_option(
-            page,
-            session_id=session_id,
-            variant_hint=payload.variant_hint,
-            size_hint=payload.size_hint,
-            color_hint=payload.color_hint,
-        )
-        notes.extend(selection_notes)
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            page_state = classify_page_state(page)
+            if page_state != "product":
+                notes.append(f"select_variant_wrong_state:{page_state}")
+                return {
+                    "selected": False,
+                    "signature": None,
+                    "notes": notes,
+                }
+
+            selected, selection_notes, signature = select_variant_option(
+                page,
+                session_id=session_id,
+                variant_hint=payload.variant_hint,
+                size_hint=payload.size_hint,
+                color_hint=payload.color_hint,
+            )
+            notes.extend(selection_notes)
+            return {
+                "selected": selected,
+                "signature": signature,
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "select_variant_summary %s",
             {
                 "session_id": str(session_id),
-                "selected": selected,
-                "variant_signature": signature,
-                "notes": notes or None,
+                "selected": result["selected"],
+                "variant_signature": result["signature"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -299,40 +382,60 @@ def add_to_cart(
 ) -> Response:
     _log_action("add_to_cart", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        page_state = classify_page_state(page)
-        if page_state != "product":
-            notes.append(f"add_to_cart_wrong_state:{page_state}")
-            logger.warning(
-                "add_to_cart called from wrong page state=%s session=%s", page_state, session_id
-            )
-            if page_state in ("search_results",):
-                _opened, _candidate, _open_notes = open_best_search_result(
-                    page, session_id=session_id
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            page_state = classify_page_state(page)
+            if page_state != "product":
+                notes.append(f"add_to_cart_wrong_state:{page_state}")
+                logger.warning(
+                    "add_to_cart called from wrong page state=%s session=%s", page_state, session_id
                 )
-                notes.extend(_open_notes)
-            elif page_state not in ("product",):
-                notes.append("add_to_cart_aborted_wrong_state")
-                logger.info(
-                    "add_to_cart_summary %s",
-                    {"session_id": str(session_id), "added": False, "notes": notes},
-                )
-                return _accepted_response()
+                if page_state == "search_results":
+                    opened, _candidate, open_notes = open_best_search_result(
+                        page,
+                        session_id=session_id,
+                    )
+                    notes.extend(open_notes)
+                    if not opened or classify_page_state(page) != "product":
+                        notes.append("add_to_cart_aborted_wrong_state")
+                        return {
+                            "added": False,
+                            "current_url": safe_page_url(page),
+                            "notes": notes,
+                        }
+                else:
+                    notes.append("add_to_cart_aborted_wrong_state")
+                    return {
+                        "added": False,
+                        "current_url": safe_page_url(page),
+                        "notes": notes,
+                    }
 
-        if detect_location_blocked(page):
-            notes.append("add_to_cart_location_blocked")
-            logger.warning("add_to_cart: location blocked session=%s", session_id)
-            return _accepted_response()
-        added, add_notes = add_current_product_to_cart(page, session_id=session_id)
-        notes.extend(add_notes)
+            if detect_location_blocked(page):
+                notes.append("add_to_cart_location_blocked")
+                logger.warning("add_to_cart: location blocked session=%s", session_id)
+                return {
+                    "added": False,
+                    "current_url": safe_page_url(page),
+                    "notes": notes,
+                }
+
+            added, add_notes = add_current_product_to_cart(page, session_id=session_id)
+            notes.extend(add_notes)
+            return {
+                "added": added,
+                "current_url": safe_page_url(page),
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "add_to_cart_summary %s",
             {
                 "session_id": str(session_id),
-                "added": added,
-                "current_url": safe_page_url(page),
-                "notes": notes or None,
+                "added": result["added"],
+                "current_url": result["current_url"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -347,24 +450,46 @@ def review_cart(
 ) -> Response:
     _log_action("review_cart", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        current_url = safe_page_url(page)
-        if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, BB_CART_URL):
-                notes.append("cart_navigation_failed")
-        cart_evidence = extract_cart_evidence(page)
-        if cart_evidence.get("cart_item_count") in {0, None}:
-            notes.append("cart_items_not_confirmed")
-        if cart_evidence.get("checkout_ready") is None:
-            notes.append("checkout_readiness_unclear")
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            current_url = safe_page_url(page)
+            page_state = classify_page_state(page)
+            if page_state == "login":
+                notes.append("cart_sign_in_required")
+                return {
+                    "cart_item_count": None,
+                    "checkout_ready": None,
+                    "notes": notes,
+                }
+            if detect_location_blocked(page):
+                notes.append("cart_location_blocked")
+                return {
+                    "cart_item_count": None,
+                    "checkout_ready": None,
+                    "notes": notes,
+                }
+            if current_url is None or "cart" not in current_url.lower():
+                if not safe_goto(page, BB_CART_URL):
+                    notes.append("cart_navigation_failed")
+            cart_evidence = extract_cart_evidence(page)
+            if cart_evidence.get("cart_item_count") in {0, None}:
+                notes.append("cart_items_not_confirmed")
+            if cart_evidence.get("checkout_ready") is None:
+                notes.append("checkout_readiness_unclear")
+            return {
+                "cart_item_count": cart_evidence.get("cart_item_count"),
+                "checkout_ready": cart_evidence.get("checkout_ready"),
+                "notes": notes + (cart_evidence.get("notes") or []),
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "review_cart_summary %s",
             {
                 "session_id": str(session_id),
-                "cart_item_count": cart_evidence.get("cart_item_count"),
-                "checkout_ready": cart_evidence.get("checkout_ready"),
-                "notes": (notes + (cart_evidence.get("notes") or [])) or None,
+                "cart_item_count": result["cart_item_count"],
+                "checkout_ready": result["checkout_ready"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -379,27 +504,34 @@ def remove_cart_item_action(
 ) -> Response:
     _log_action("remove_cart_item", session_id, item_id=payload.item_id, title=payload.title)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        current_url = safe_page_url(page)
-        if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, BB_CART_URL):
-                notes.append("cart_navigation_before_remove_failed")
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            current_url = safe_page_url(page)
+            if current_url is None or "cart" not in current_url.lower():
+                if not safe_goto(page, BB_CART_URL):
+                    notes.append("cart_navigation_before_remove_failed")
 
-        removed, remove_notes = remove_cart_item(
-            page,
-            item_id=payload.item_id,
-            title=payload.title,
-        )
-        notes.extend(remove_notes)
-        cart_evidence = extract_cart_evidence(page)
+            removed, remove_notes = remove_cart_item(
+                page,
+                item_id=payload.item_id,
+                title=payload.title,
+            )
+            notes.extend(remove_notes)
+            cart_evidence = extract_cart_evidence(page)
+            return {
+                "removed": removed,
+                "cart_item_count": cart_evidence.get("cart_item_count"),
+                "notes": notes + (cart_evidence.get("notes") or []),
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "remove_cart_item_summary %s",
             {
                 "session_id": str(session_id),
-                "removed": removed,
-                "cart_item_count": cart_evidence.get("cart_item_count"),
-                "notes": (notes + (cart_evidence.get("notes") or [])) or None,
+                "removed": result["removed"],
+                "cart_item_count": result["cart_item_count"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -420,28 +552,35 @@ def update_cart_quantity_action(
         quantity=str(payload.quantity),
     )
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        current_url = safe_page_url(page)
-        if current_url is None or "cart" not in current_url.lower():
-            if not safe_goto(page, BB_CART_URL):
-                notes.append("cart_navigation_before_quantity_failed")
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            current_url = safe_page_url(page)
+            if current_url is None or "cart" not in current_url.lower():
+                if not safe_goto(page, BB_CART_URL):
+                    notes.append("cart_navigation_before_quantity_failed")
 
-        updated, update_notes = update_cart_item_quantity(
-            page,
-            item_id=payload.item_id,
-            title=payload.title,
-            quantity=payload.quantity,
-        )
-        notes.extend(update_notes)
-        cart_evidence = extract_cart_evidence(page)
+            updated, update_notes = update_cart_item_quantity(
+                page,
+                item_id=payload.item_id,
+                title=payload.title,
+                quantity=payload.quantity,
+            )
+            notes.extend(update_notes)
+            cart_evidence = extract_cart_evidence(page)
+            return {
+                "updated": updated,
+                "cart_item_count": cart_evidence.get("cart_item_count"),
+                "notes": notes + (cart_evidence.get("notes") or []),
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "update_cart_quantity_summary %s",
             {
                 "session_id": str(session_id),
-                "updated": updated,
-                "cart_item_count": cart_evidence.get("cart_item_count"),
-                "notes": (notes + (cart_evidence.get("notes") or [])) or None,
+                "updated": result["updated"],
+                "cart_item_count": result["cart_item_count"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -456,50 +595,64 @@ def perform_checkout(
 ) -> Response:
     _log_action("perform_checkout", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        current_url = safe_page_url(page)
-        if action_guard.should_skip_duplicate_checkout_attempt(
-            session_id,
-            current_url=current_url,
-        ):
-            notes.append("duplicate_checkout_attempt_skipped")
-            logger.info(
-                "perform_checkout_initiated %s",
-                {
-                    "session_id": str(session_id),
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            current_url = safe_page_url(page)
+            if action_guard.should_skip_duplicate_checkout_attempt(
+                session_id,
+                current_url=current_url,
+            ):
+                notes.append("duplicate_checkout_attempt_skipped")
+                return {
                     "initiated": True,
                     "current_url": current_url,
-                    "notes": notes or None,
-                },
-            )
-            return _accepted_response()
+                    "notes": notes,
+                }
 
-        page_state = classify_page_state(page)
-        if page_state not in ("cart", "checkout"):
-            notes.append(f"checkout_wrong_state:{page_state}")
-            logger.warning(
-                "perform_checkout: not on cart, state=%s session=%s", page_state, session_id
-            )
+            page_state = classify_page_state(page)
+            if page_state not in ("cart", "checkout"):
+                notes.append(f"checkout_wrong_state:{page_state}")
+                logger.warning(
+                    "perform_checkout: not on cart, state=%s session=%s", page_state, session_id
+                )
+                if page_state == "login":
+                    notes.append("checkout_sign_in_required")
+                    return {
+                        "initiated": False,
+                        "current_url": current_url,
+                        "notes": notes,
+                    }
 
-        if current_url is None or ("cart" not in current_url.lower() and "checkout" not in current_url.lower()):
-            if not safe_goto(page, BB_CART_URL):
-                notes.append("cart_navigation_before_checkout_failed")
+            if current_url is None or ("cart" not in current_url.lower() and "checkout" not in current_url.lower()):
+                if not safe_goto(page, BB_CART_URL):
+                    notes.append("cart_navigation_before_checkout_failed")
+                    return {
+                        "initiated": False,
+                        "current_url": safe_page_url(page),
+                        "notes": notes,
+                    }
 
-        initiated, checkout_notes = attempt_checkout_entry(page)
-        notes.extend(checkout_notes)
-        if initiated:
-            action_guard.record_checkout_attempt(
-                session_id,
-                current_url=safe_page_url(page),
-            )
+            initiated, checkout_notes = attempt_checkout_entry(page)
+            notes.extend(checkout_notes)
+            if initiated:
+                action_guard.record_checkout_attempt(
+                    session_id,
+                    current_url=safe_page_url(page),
+                )
+            return {
+                "initiated": initiated,
+                "current_url": safe_page_url(page),
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "perform_checkout_initiated %s",
             {
                 "session_id": str(session_id),
-                "initiated": initiated,
-                "current_url": safe_page_url(page),
-                "notes": notes or None,
+                "initiated": result["initiated"],
+                "current_url": result["current_url"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -514,62 +667,75 @@ def finalize_purchase(
 ) -> Response:
     _log_action("finalize_purchase", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        if not settings.ALLOW_FINAL_PURCHASE_AUTOMATION:
-            notes.append("final_purchase_automation_disabled")
-            logger.info("finalize_purchase_summary %s", {"session_id": str(session_id), "notes": notes})
-            return _accepted_response()
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            if not settings.ALLOW_FINAL_PURCHASE_AUTOMATION:
+                notes.append("final_purchase_automation_disabled")
+                return {
+                    "current_url": safe_page_url(page),
+                    "notes": notes,
+                }
 
-        page_state = classify_page_state(page)
-        if page_state != "checkout":
-            notes.append(f"finalize_wrong_state:{page_state}")
-            logger.warning("finalize_purchase: not on checkout state=%s session=%s", page_state, session_id)
-            return _accepted_response()
+            page_state = classify_page_state(page)
+            if page_state != "checkout":
+                notes.append(f"finalize_wrong_state:{page_state}")
+                logger.warning(
+                    "finalize_purchase: not on checkout state=%s session=%s", page_state, session_id
+                )
+                return {
+                    "current_url": safe_page_url(page),
+                    "notes": notes,
+                }
 
-        current_url = (safe_page_url(page) or "").lower()
-        if any(t in current_url for t in ("order-confirmation", "thankyou", "thank-you", "order-placed")):
-            notes.append("order_confirmation_already_visible")
-        else:
-            BB_PLACE_ORDER_SELECTORS = [
-                "button[class*='PlaceOrder']",
-                "button[qa='place-order']",
-                "button[class*='Confirm']",
-                "button[class*='PayNow']",
-                "button[class*='pay-now']",
-                "button[class*='Proceed']",
-            ]
-            clicked = False
-            for selector in BB_PLACE_ORDER_SELECTORS:
-                loc_fn = getattr(page, "locator", None)
-                if not callable(loc_fn):
-                    continue
-                btn = loc_fn(selector)
-                vis_fn = getattr(btn, "is_visible", None)
-                try:
-                    if callable(vis_fn) and not vis_fn(timeout=1500):
+            current_url = (safe_page_url(page) or "").lower()
+            if any(t in current_url for t in ("order-confirmation", "thankyou", "thank-you", "order-placed")):
+                notes.append("order_confirmation_already_visible")
+            else:
+                BB_PLACE_ORDER_SELECTORS = [
+                    "button[class*='PlaceOrder']",
+                    "button[qa='place-order']",
+                    "button[class*='Confirm']",
+                    "button[class*='PayNow']",
+                    "button[class*='pay-now']",
+                    "button[class*='Proceed']",
+                ]
+                clicked = False
+                for selector in BB_PLACE_ORDER_SELECTORS:
+                    loc_fn = getattr(page, "locator", None)
+                    if not callable(loc_fn):
                         continue
-                except Exception:
-                    continue
-                clk_fn = getattr(btn, "click", None)
-                if not callable(clk_fn):
-                    continue
-                try:
-                    clk_fn(timeout=3000)
-                    wfl = getattr(page, "wait_for_load_state", None)
-                    if callable(wfl):
-                        wfl("domcontentloaded")
-                    clicked = True
-                    notes.append(f"final_purchase_clicked:{selector}")
-                    break
-                except Exception:
-                    continue
-            if not clicked:
-                notes.append("final_purchase_button_not_found")
+                    btn = loc_fn(selector)
+                    vis_fn = getattr(btn, "is_visible", None)
+                    try:
+                        if callable(vis_fn) and not vis_fn(timeout=1500):
+                            continue
+                    except Exception:
+                        continue
+                    clk_fn = getattr(btn, "click", None)
+                    if not callable(clk_fn):
+                        continue
+                    try:
+                        clk_fn(timeout=3000)
+                        wfl = getattr(page, "wait_for_load_state", None)
+                        if callable(wfl):
+                            wfl("domcontentloaded")
+                        clicked = True
+                        notes.append(f"final_purchase_clicked:{selector}")
+                        break
+                    except Exception:
+                        continue
+                if not clicked:
+                    notes.append("final_purchase_button_not_found")
+            return {
+                "current_url": safe_page_url(page),
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
 
         logger.info(
             "finalize_purchase_summary %s",
-            {"session_id": str(session_id), "current_url": safe_page_url(page), "notes": notes or None},
+            {"session_id": str(session_id), "current_url": result["current_url"], "notes": result["notes"] or None},
         )
     except Exception as exc:
         logger.error("finalize_purchase failed for session %s: %s", session_id, exc)
@@ -583,16 +749,22 @@ def navigate_orders_history(
 ) -> Response:
     _log_action("navigate_orders_history", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        if not safe_goto(page, BB_ORDERS_URL):
-            notes.append("orders_navigation_failed")
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            if not safe_goto(page, BB_ORDERS_URL):
+                notes.append("orders_navigation_failed")
+            return {
+                "landed_url": safe_page_url(page),
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
         logger.info(
             "navigate_orders_history_summary %s",
             {
                 "session_id": str(session_id),
-                "landed_url": safe_page_url(page),
-                "notes": notes or None,
+                "landed_url": result["landed_url"],
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:
@@ -610,19 +782,21 @@ def cancel_latest_order(
 ) -> RuntimeOrderCancellationResult:
     _log_action("cancel_latest_order", session_id)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        result = attempt_cancel_latest_order(page)
-        existing_notes = str(result.get("notes") or "").strip()
-        combined_notes = ", ".join(
-            note for note in [", ".join(notes) if notes else None, existing_notes or None] if note
-        )
-        payload = {
-            **result,
-            "notes": combined_notes or None,
-        }
-        logger.info("cancel_latest_order_summary %s", {"session_id": str(session_id), **payload})
-        return RuntimeOrderCancellationResult.model_validate(payload)
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            result = attempt_cancel_latest_order(page)
+            existing_notes = str(result.get("notes") or "").strip()
+            combined_notes = ", ".join(
+                note for note in [", ".join(notes) if notes else None, existing_notes or None] if note
+            )
+            return {
+                **result,
+                "notes": combined_notes or None,
+            }
+
+        result = _run_page_action(session_id, _run)
+        logger.info("cancel_latest_order_summary %s", {"session_id": str(session_id), **result})
+        return RuntimeOrderCancellationResult.model_validate(result)
     except Exception as exc:
         logger.error("cancel_latest_order failed for session %s: %s", session_id, exc)
         return RuntimeOrderCancellationResult(
@@ -640,30 +814,37 @@ def handle_error_recovery(
 ) -> Response:
     _log_action("handle_error_recovery", session_id, error_type=payload.error_type)
     try:
-        page = browser_session_manager.get_page(session_id)
-        notes = dismiss_common_interruptions(page)
-        error_type = (payload.error_type or "").lower()
-        preferred = "home"
-        if "cart" in error_type or "checkout" in error_type:
-            preferred = "cart"
-        elif "search" in error_type or "navigation" in error_type:
-            preferred = "search"
+        def _run(page: Any) -> dict[str, Any]:
+            notes = dismiss_common_interruptions(page)
+            error_type = (payload.error_type or "").lower()
+            preferred = "home"
+            if "cart" in error_type or "checkout" in error_type:
+                preferred = "cart"
+            elif "search" in error_type or "navigation" in error_type:
+                preferred = "search"
 
-        recovery = recover_to_stable_page(page, preferred=preferred)
-        notes.extend(recovery.get("notes") or [])
-        if recovery.get("success") is not True and preferred != "home":
-            safe_goto(page, BB_HOME_URL)
-            notes.append("home_fallback_after_recovery")
+            recovery = recover_to_stable_page(page, preferred=preferred)
+            notes.extend(recovery.get("notes") or [])
+            if recovery.get("success") is not True and preferred != "home":
+                safe_goto(page, BB_HOME_URL)
+                notes.append("home_fallback_after_recovery")
+            return {
+                "preferred": preferred,
+                "recovery": recovery,
+                "notes": notes,
+            }
+
+        result = _run_page_action(session_id, _run)
 
         logger.info(
             "handle_error_recovery_applied %s",
             {
                 "session_id": str(session_id),
                 "error_type": payload.error_type,
-                "strategy": recovery.get("target"),
-                "success": recovery.get("success"),
-                "landed_url": recovery.get("landed_url"),
-                "notes": notes or None,
+                "strategy": result["recovery"].get("target"),
+                "success": result["recovery"].get("success"),
+                "landed_url": result["recovery"].get("landed_url"),
+                "notes": result["notes"] or None,
             },
         )
     except Exception as exc:

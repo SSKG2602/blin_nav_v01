@@ -54,19 +54,14 @@ export function DemoShell() {
     demo.context?.latest_multimodal_assessment?.recommended_next_step ??
     demo.context?.latest_multimodal_assessment?.decision ??
     "No recommended step yet";
-  const micDisabled = !demo.connected || !demo.speechSupported;
+  const micDisabled = !demo.speechSupported;
   const micTooltip = !demo.speechSupported
     ? "Voice recognition requires Chrome or Edge browser"
-    : !demo.connected
-      ? 'Click "Wake Luminar" first to start the live session.'
-      : demo.listening
-        ? "Stop voice capture"
-        : "Start voice capture";
-  const wakeButtonLabel = demo.wakeActive
-    ? "Luminar Awake"
-    : demo.wakePhraseEnabled
-      ? 'Listening for "Luminar"...'
-      : "Wake Luminar";
+    : demo.voiceModeEnabled
+      ? "Disable voice listening"
+      : "Enable voice listening";
+  const sessionButtonLabel = demo.sessionId ? "Session Active" : demo.connecting ? "Starting Session..." : "Start Session";
+  const voiceButtonLabel = demo.voiceModeEnabled ? "Disable Voice" : "Enable Voice";
 
   const statusTone = useMemo(() => {
     if (lowConfidenceActive) {
@@ -218,7 +213,7 @@ export function DemoShell() {
                 type="button"
                 className="rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                 onClick={demo.connectAmazonIn}
-                disabled={!demo.sessionId || demo.amazonAuthBusy || demo.amazonConnected}
+                disabled={demo.connecting || demo.amazonAuthBusy || demo.amazonConnected}
               >
                 {demo.amazonAuthBusy
                   ? "Saving Cookies..."
@@ -260,11 +255,11 @@ export function DemoShell() {
               }`}
             >
               {demo.amazonConnected
-                ? "Amazon Connected ✓"
+                ? "BigBasket Connected ✓"
                 : demo.amazonAuthNote ??
                   (demo.sessionId
-                    ? "Bind Amazon login to the active BlindNav session."
-                    : "Start a live session to bind Amazon login.")}
+                    ? "Bind BigBasket to the active Luminar session."
+                    : "Connect BigBasket to start a session and bind cookies.")}
             </p>
           </div>
         </section>
@@ -273,7 +268,7 @@ export function DemoShell() {
           <article className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-semibold">Voice Controls</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Start session, capture voice input, and issue interrupt/cancel actions.
+              Start the session, enable voice once, and keep commands simple.
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-4">
               <label className="flex flex-col gap-1 text-sm">
@@ -290,17 +285,20 @@ export function DemoShell() {
               <button
                 type="button"
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-                onClick={demo.startWakeSequence}
-                disabled={demo.connecting || demo.wakePhraseEnabled || demo.wakeActive}
+                onClick={demo.startLiveSession}
+                disabled={demo.connecting || Boolean(demo.sessionId)}
               >
-                {wakeButtonLabel}
+                {sessionButtonLabel}
               </button>
               <div className="flex items-center justify-center md:justify-start" title={micTooltip}>
-                <VoiceMicButton
-                  listening={demo.listening}
-                  disabled={micDisabled}
-                  onPress={demo.listening ? demo.stopListening : demo.startListening}
-                />
+                <div className="flex items-center gap-3">
+                  <VoiceMicButton
+                    listening={demo.voiceModeEnabled || demo.listening}
+                    disabled={micDisabled}
+                    onPress={demo.voiceModeEnabled ? demo.disableVoiceMode : demo.enableVoiceMode}
+                  />
+                  <span className="text-sm font-medium text-slate-700">{voiceButtonLabel}</span>
+                </div>
               </div>
               <button
                 type="button"
@@ -315,10 +313,14 @@ export function DemoShell() {
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Speech recognition: {demo.speechSupported ? "available" : "unavailable"}
               </span>
-              <span
-                className={`rounded-full px-3 py-1 ${demo.wakeActive ? "bg-emerald-100 text-emerald-900" : demo.wakePhraseEnabled ? "bg-teal-100 text-teal-900" : "bg-slate-100"}`}
-              >
-                Wake phrase: {demo.wakeActive ? "detected" : demo.wakePhraseEnabled ? "listening" : "idle"}
+              <span className={`rounded-full px-3 py-1 ${demo.voiceModeEnabled ? "bg-emerald-100 text-emerald-900" : "bg-slate-100"}`}>
+                Voice: {demo.voiceModeEnabled ? "enabled" : "disabled"}
+              </span>
+              <span className={`rounded-full px-3 py-1 ${demo.listening ? "bg-teal-100 text-teal-900" : "bg-slate-100"}`}>
+                Listening: {demo.listening ? "yes" : "no"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1">
+                Session: {demo.sessionId ? "active" : "idle"}
               </span>
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Audio capture: {demo.audioCaptureSupported ? "available" : "unavailable"}
@@ -326,18 +328,28 @@ export function DemoShell() {
               <span className="rounded-full bg-slate-100 px-3 py-1">
                 Playback: {demo.speaking ? "Speaking..." : "idle"}
               </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1">
-                Voice capture: {demo.listening ? "listening" : "idle"}
-              </span>
               <button
                 type="button"
-                className="rounded-xl border border-rose-400 px-4 py-2 text-sm font-medium text-rose-700"
+                className="rounded-xl border border-slate-400 px-4 py-2 text-sm font-medium disabled:border-slate-200 disabled:text-slate-400"
                 onClick={demo.sendCancel}
                 disabled={!demo.connected}
+              >
+                Stop Current Task
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-rose-400 px-4 py-2 text-sm font-medium text-rose-700 disabled:border-slate-200 disabled:text-slate-400"
+                onClick={demo.closeConnection}
+                disabled={!demo.sessionId}
               >
                 Cancel Session
               </button>
             </div>
+            <p className="mt-3 text-sm text-slate-600">
+              Say commands like <span className="font-medium">Luminar start session</span>,{" "}
+              <span className="font-medium">Luminar connect BigBasket</span>, or{" "}
+              <span className="font-medium">cancel it</span>.
+            </p>
             {demo.voiceSupportMessage ? (
               <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                 {demo.voiceSupportMessage}

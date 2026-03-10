@@ -6,6 +6,11 @@ import threading
 from typing import Any, Dict
 from uuid import UUID
 
+from browser_runtime.observation.extractor import (
+    extract_current_page_observation,
+    extract_current_page_screenshot,
+)
+
 try:
     from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 except ImportError:  # Playwright not installed
@@ -258,6 +263,51 @@ class BrowserSessionManager:
 
         return self._executor.submit(_run).result()
 
+    def navigate_to(self, session_id: UUID, url: str) -> None:
+        def _run() -> None:
+            self._ensure_browser_started()
+            if session_id in self._pages:
+                page = self._pages[session_id]
+            else:
+                page = self._create_page_for_session(session_id)
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+        self._executor.submit(_run).result()
+
+    def get_current_url(self, session_id: UUID) -> str | None:
+        def _run() -> str | None:
+            self._ensure_browser_started()
+            if session_id in self._pages:
+                page = self._pages[session_id]
+            else:
+                page = self._create_page_for_session(session_id)
+            current_url = getattr(page, "url", None)
+            return current_url if isinstance(current_url, str) and current_url else None
+
+        return self._executor.submit(_run).result()
+
+    def get_current_page_observation(self, session_id: UUID) -> dict[str, Any]:
+        def _run() -> dict[str, Any]:
+            self._ensure_browser_started()
+            if session_id in self._pages:
+                page = self._pages[session_id]
+            else:
+                page = self._create_page_for_session(session_id)
+            return extract_current_page_observation(page).model_dump()
+
+        return self._executor.submit(_run).result()
+
+    def get_page_screenshot(self, session_id: UUID) -> dict[str, Any]:
+        def _run() -> dict[str, Any]:
+            self._ensure_browser_started()
+            if session_id in self._pages:
+                page = self._pages[session_id]
+            else:
+                page = self._create_page_for_session(session_id)
+            return extract_current_page_screenshot(page).model_dump()
+
+        return self._executor.submit(_run).result()
+
     def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
@@ -315,6 +365,7 @@ class BrowserSessionManager:
             self._ensure_browser_started()
             if session_id not in self._pages:
                 self._create_page_for_session(session_id)
+            page = self._pages[session_id]
             context = self._contexts.get(session_id)
             if context is None:
                 raise RuntimeError("No Playwright browser context is available for this session.")
@@ -327,7 +378,9 @@ class BrowserSessionManager:
             if not callable(add_cookies_fn):
                 raise RuntimeError("Browser context does not support cookie injection.")
 
+            page.goto("https://www.amazon.in", wait_until="domcontentloaded", timeout=30000)
             add_cookies_fn(normalized_cookies)
+            page.reload(wait_until="domcontentloaded")
 
         self._executor.submit(_run).result()
 

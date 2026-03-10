@@ -7,7 +7,6 @@ import {
   createLiveSession,
   getCurrentUser,
   getAmazonConnectionStatus,
-  getCheckpoint,
   loadLatestOrderSnapshot,
   login,
   persistAuthToken,
@@ -239,8 +238,7 @@ export function useDemoShell() {
       if (ctx.latest_sensitive_checkpoint) {
         setCheckpoint(ctx.latest_sensitive_checkpoint);
       } else {
-        const checkpointResult = await getCheckpoint(id);
-        setCheckpoint(checkpointResult);
+        setCheckpoint(null);
       }
       await refreshRuntimeObservationState(id, true);
     } catch (err) {

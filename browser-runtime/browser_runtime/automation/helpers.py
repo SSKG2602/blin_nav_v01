@@ -9,93 +9,95 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-AMAZON_HOME_URL = "https://www.amazon.in"
-AMAZON_CART_URL = "https://www.amazon.in/gp/cart/view.html"
-AMAZON_ORDERS_URL = "https://www.amazon.in/gp/css/order-history"
+AMAZON_HOME_URL = "https://www.bigbasket.com"
+AMAZON_CART_URL = "https://www.bigbasket.com/basket/"
+AMAZON_ORDERS_URL = "https://www.bigbasket.com/order/order-history/"
 
 SEARCH_INPUT_SELECTORS = [
-    "input#twotabsearchtextbox",
-    "input[name='field-keywords']",
+    "input[name='searchQuery']",
+    "input[placeholder*='Search']",
+    "input[placeholder*='search']",
     "input[type='search']",
 ]
 
-SEARCH_RESULT_CONTAINER_SELECTOR = '[data-component-type="s-search-result"]'
+SEARCH_RESULT_CONTAINER_SELECTOR = "div.SKUDeck___StyledDiv, li.PaginateItems___StyledLi, div[class*='SKUDeck'], div[qa='product-listing']"
 SEARCH_RESULT_LINK_SELECTORS = [
-    '[data-component-type="s-search-result"] h2 a[href*="/dp/"]',
-    '[data-component-type="s-search-result"] a[href*="/dp/"]',
-    '[data-component-type="s-search-result"] h2 a[href]',
+    "a[href*='/pd/']",
+    "div[class*='SKUDeck'] a",
+    "li[class*='PaginateItems'] a",
 ]
 
 CHECKOUT_BUTTON_SELECTORS = [
-    'input[name="proceedToRetailCheckout"]',
-    "#sc-buy-box-ptc-button input[type='submit']",
-    "#sc-buy-box-ptc-button a",
-    'a[href*="/gp/buy/"]',
+    "button[class*='Checkout']",
+    "button[qa='checkout']",
+    "a[href*='checkout']",
+    "button[class*='Proceed']",
 ]
 
 ADD_TO_CART_BUTTON_SELECTORS = [
-    "#add-to-cart-button",
-    "input#add-to-cart-button",
-    'input[name="submit.add-to-cart"]',
-    '[data-action="add-to-cart"] input[type="submit"]',
+    "button[class*='AddToCart']",
+    "button[qa='add-to-cart']",
+    "div[class*='AddToCart'] button",
+    "button[class*='add-to-basket']",
 ]
 
 VARIANT_OPTION_SELECTORS = [
-    "#twister .a-button-text",
-    "#twister li",
-    "#variation_size_name li",
-    "#variation_color_name li",
-    "#variation_style_name li",
-    "#twister-plus-inline-twister [role='button']",
+    "button[class*='Variant']",
+    "button[class*='Pack']",
+    "div[class*='Variant'] button",
+    "div[class*='PackSize'] button",
+    "[role='button'][class*='Variant']",
 ]
 
 CART_ROW_SELECTORS = [
-    "div.sc-list-item-content",
-    ".sc-list-item",
-    '[data-name="Active Items"] .sc-list-item-content',
+    "div[class*='BasketItem']",
+    "div[class*='basket-item']",
+    "div[qa='basket-item']",
+    "li[class*='BasketItem']",
 ]
 
 CART_REMOVE_SELECTORS = [
-    'input[value="Delete"]',
-    '[data-action="delete"] input[type="submit"]',
-    '[data-action="delete"]',
-    "button.sc-action-delete",
+    "button[class*='Remove']",
+    "button[qa='remove-item']",
+    "button[class*='Delete']",
+    "button[aria-label*='Remove']",
 ]
 
 CART_QUANTITY_SELECTORS = [
-    "select[name*='quantity']",
-    "select.sc-update-quantity",
-    "input[name='quantityBox']",
+    "select[class*='Quantity']",
+    "input[name*='qty']",
+    "input[name*='quantity']",
+    "input[class*='Quantity']",
 ]
 
 ORDERS_CARD_SELECTORS = [
-    "[data-order-id]",
-    ".order-card",
-    ".a-box-group",
-    ".order",
+    "div[class*='OrderCard']",
+    "div[class*='order-card']",
+    "li[class*='OrderCard']",
+    "div[qa='order-card']",
 ]
 
 ORDER_CANCEL_ENTRY_SELECTORS = [
+    "button[class*='Cancel']",
     "a[href*='cancel']",
-    "input[value*='Cancel']",
-    "button:has-text('Cancel')",
+    "button[qa*='cancel']",
     "text=Cancel items",
     "text=Cancel order",
 ]
 
 ORDER_CANCEL_CONFIRM_SELECTORS = [
-    "input[value*='Cancel selected items']",
-    "input[value*='Confirm cancellation']",
-    "button:has-text('Confirm cancellation')",
-    "button:has-text('Cancel selected items')",
+    "button[class*='Confirm']",
+    "button[qa*='confirm']",
+    "button[class*='CancelSelected']",
     "text=Confirm cancellation",
     "text=Cancel selected items",
 ]
 
 CAPTCHA_SELECTORS = [
-    "input#captchacharacters",
+    "input[name*='captcha']",
+    "input[id*='captcha']",
     "img[src*='captcha']",
-    "form[action*='validateCaptcha']",
+    "form[action*='captcha']",
 ]
 
 OTP_SELECTORS = [
@@ -112,33 +114,189 @@ PAYMENT_AUTH_SELECTORS = [
 ]
 
 PRODUCT_ANCHOR_SELECTORS = [
-    "#productTitle",
-    "#add-to-cart-button",
-    "#acrPopover",
+    "h1.product-name",
+    "div[qa='product-name'] h1",
+    "button[class*='AddToCart']",
 ]
 
 CART_ANCHOR_SELECTORS = [
-    "#sc-subtotal-label-buybox",
-    ".sc-list-item",
-    'input[name="proceedToRetailCheckout"]',
+    "div[class*='BasketItem']",
+    "div[qa='basket-item']",
+    "button[class*='Checkout']",
 ]
 
 CHECKOUT_ANCHOR_SELECTORS = [
-    "#submitOrderButtonId",
-    "#placeYourOrder",
-    "input[name='placeYourOrder1']",
+    "button[class*='Checkout']",
+    "button[qa='place-order']",
+    "button[class*='PlaceOrder']",
+    "a[href*='checkout']",
 ]
 
 MODAL_DISMISS_SELECTORS = [
-    "#sp-cc-accept",
-    "button#sp-cc-accept",
     "button[aria-label='Close']",
-    "button.a-popover-close",
-    "input[data-action-type='DISMISS']",
-    "button[data-action='a-popover-close']",
+    "button[class*='Close']",
+    "button[class*='close']",
+    "div[class*='Modal'] button",
+    "button[class*='Dismiss']",
 ]
 
-_JUNK_LINK_TOKENS = ("slredirect", "/gp/help", "/customer-preferences", "sponsored")
+PRODUCT_TITLE_SELECTORS = [
+    "h1.product-name",
+    "span[class*='ProductName']",
+    "h1[class*='ProductName']",
+    "div[qa='product-name'] h1",
+]
+
+PRODUCT_PRICE_SELECTORS = [
+    "span[class*='Pricing']",
+    "div[class*='PriceContainer']",
+    "span[qa='price']",
+]
+
+SEARCH_RESULT_TITLE_SELECTORS = [
+    "div[qa='product-name']",
+    "h3",
+    "span[class*='ProductName']",
+    "a[href*='/pd/']",
+]
+
+SEARCH_RESULT_PRICE_SELECTORS = [
+    "span[class*='Pricing']",
+    "div[class*='PriceContainer']",
+    "span[qa='price']",
+    "span[class*='price']",
+]
+
+PRODUCT_AVAILABILITY_SELECTORS = [
+    "button[class*='AddToCart']",
+    "button[qa='add-to-cart']",
+    "span[class*='Stock']",
+    "div[class*='Inventory']",
+]
+
+PRODUCT_VARIANT_VALUE_SELECTORS = [
+    "div[class*='PackSize'] span",
+    "span[class*='Pack']",
+    "div[class*='Variant'] span",
+    "div[qa='product-variant'] span",
+]
+
+PRODUCT_RATING_SELECTORS = [
+    "span[class*='Rating']",
+    "div[class*='Rating']",
+    "span[qa='rating']",
+]
+
+PRODUCT_REVIEW_COUNT_SELECTORS = [
+    "span[class*='ReviewCount']",
+    "div[class*='ReviewCount']",
+    "span[qa='review-count']",
+]
+
+PRODUCT_BRAND_SELECTORS = [
+    "a[class*='Brand']",
+    "div[class*='Brand']",
+    "span[class*='Brand']",
+    "div[qa='brand']",
+]
+
+PRODUCT_REVIEW_SNIPPET_SELECTORS = [
+    "div[class*='Review'] p",
+    "div[class*='Review'] span",
+    "div[qa='review'] p",
+    "div[qa='review'] span",
+]
+
+CART_COUNT_SELECTORS = [
+    "div[class*='BasketSummary']",
+    "span[class*='ItemCount']",
+    "div[qa='basket-count']",
+]
+
+CART_ROW_TITLE_SELECTORS = [
+    "div[class*='ProductName']",
+    "div[qa='product-name']",
+    "a[href*='/pd/']",
+    "h3",
+]
+
+CART_ROW_LINK_SELECTORS = [
+    "a[href*='/pd/']",
+    "div[class*='ProductName'] a",
+    "div[qa='product-name'] a",
+    "h3 a[href]",
+]
+
+CART_ROW_PRICE_SELECTORS = [
+    "span[class*='Pricing']",
+    "div[class*='PriceContainer']",
+    "span[qa='price']",
+    "div[class*='price']",
+]
+
+CART_ROW_QUANTITY_TEXT_SELECTORS = [
+    "span[class*='Quantity']",
+    "div[class*='Quantity']",
+    "input[name*='quantity']",
+    "input[name*='qty']",
+]
+
+CART_ROW_VARIANT_SELECTORS = [
+    "span[class*='Variant']",
+    "span[class*='Pack']",
+    "div[class*='PackSize']",
+]
+
+ORDER_TITLE_SELECTORS = [
+    "div[class*='ProductName']",
+    "a[href*='order']",
+    "h4",
+    "h5",
+]
+
+ORDER_ID_SELECTORS = [
+    "span[class*='OrderId']",
+    "div[class*='OrderId']",
+    "bdi",
+]
+
+ORDER_DATE_SELECTORS = [
+    "span[class*='OrderDate']",
+    "div[class*='OrderDate']",
+    "span[class*='Date']",
+]
+
+ORDER_STATUS_SELECTORS = [
+    "span[class*='Status']",
+    "div[class*='Status']",
+    "span[class*='Delivery']",
+]
+
+ORDER_ETA_SELECTORS = [
+    "span[class*='Delivery']",
+    "div[class*='Delivery']",
+    "span[class*='Eta']",
+]
+
+ORDER_TOTAL_SELECTORS = [
+    "span[class*='Price']",
+    "div[class*='Price']",
+    "span[qa='price']",
+]
+
+ORDER_RETURNS_LINK_SELECTORS = [
+    "a[href*='return']",
+    "a[href*='returns']",
+    "a[href*='support']",
+]
+
+ORDER_SUPPORT_LINK_SELECTORS = [
+    "a[href*='support']",
+    "a[href*='help']",
+    "a[href*='contact']",
+]
+
+_JUNK_LINK_TOKENS = ("help", "support", "sponsored", "login")
 _JUNK_TITLE_TOKENS = ("sponsored", "ad")
 
 
@@ -423,7 +581,7 @@ class SessionActionGuard:
 
     def should_skip_duplicate_product_open(self, session_id: UUID, *, current_url: str | None) -> bool:
         url_text = _normalize_lower(current_url)
-        if "/dp/" not in url_text:
+        if "/pd/" not in url_text:
             return False
         with self._lock:
             state = self._get_state(session_id)
@@ -493,7 +651,7 @@ class SessionActionGuard:
         url_text = _normalize_lower(current_url)
         if not url_text:
             return False
-        if "checkout" in url_text or "/gp/buy/" in url_text:
+        if "checkout" in url_text:
             return True
 
         with self._lock:
@@ -519,7 +677,7 @@ def _query_matches_url(query: str, url: str | None) -> bool:
     url_text = _normalize_lower(url)
     if not url_text:
         return False
-    if "/s?" not in url_text and "field-keywords=" not in url_text:
+    if "/ps/" not in url_text and "?q=" not in url_text:
         return False
     condensed = "+".join(part for part in query.split() if part)
     encoded = quote_plus(query)
@@ -600,6 +758,7 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
     if not query_text:
         notes.append("query_missing")
         return False, notes
+    fallback_url = f"https://www.bigbasket.com/ps/?q={query_text.replace(' ', '+')}"
 
     for attempt in range(2):
         target = None
@@ -616,16 +775,22 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
             break
 
         if target is None:
-            if attempt == 0 and safe_goto(page, AMAZON_HOME_URL):
-                notes.append("search_context_reset")
-                continue
+            if safe_goto(page, fallback_url):
+                notes.append("search_box_missing_used_url_fallback")
+                return True, notes
             notes.append("search_box_not_found")
             return False, notes
 
         if not safe_fill(target, query_text):
+            if safe_goto(page, fallback_url):
+                notes.append("search_fill_failed_used_url_fallback")
+                return True, notes
             notes.append("search_fill_failed")
             return False, notes
         if not safe_press(target, "Enter"):
+            if safe_goto(page, fallback_url):
+                notes.append("search_submit_failed_used_url_fallback")
+                return True, notes
             notes.append("search_submit_failed")
             return False, notes
         safe_wait_for_load(page)
@@ -643,15 +808,18 @@ def collect_search_result_candidates(page: Any, limit: int = 8) -> list[dict[str
 
     for index in range(min(limit, container_count)):
         container = _nth(containers, index)
-        title = _extract_first_text(container, ["h2 a span", "h2 span", "a h2 span", "span.a-size-medium"])
-        url = _extract_first_attr(container, ["h2 a[href]", "a[href*='/dp/']", "a[href]"], "href")
-        price = _extract_first_text(
+        title = _extract_first_text(container, SEARCH_RESULT_TITLE_SELECTORS)
+        url = _extract_first_attr(container, ["a[href*='/pd/']", "a[href]"], "href")
+        price = _extract_first_text(container, SEARCH_RESULT_PRICE_SELECTORS)
+        rating = _extract_first_text(container, ["span[class*='Rating']", "span[qa='rating']"])
+        review_count = _extract_first_text(
             container,
-            ["span.a-price span.a-offscreen", "span.a-price-whole", ".a-price .a-offscreen"],
+            ["span[class*='ReviewCount']", "span[qa='review-count']", "span[class*='Review']"],
         )
-        rating = _extract_first_text(container, ["span.a-icon-alt"])
-        review_count = _extract_first_text(container, ["span[aria-label*='ratings']", "span.a-size-base.s-underline-text"])
-        availability = _extract_first_text(container, ["span.a-color-success", "span.a-color-price"])
+        availability = _extract_first_text(
+            container,
+            ["button[class*='AddToCart']", "span[class*='Stock']", "div[class*='Inventory']"],
+        )
 
         if url and url.startswith("/"):
             url = urljoin(AMAZON_HOME_URL, url)
@@ -711,10 +879,10 @@ def choose_best_product_candidate(candidates: list[dict[str, Any]]) -> dict[str,
             score += 2
         if price:
             score += 1
-        if "/dp/" in url:
+        if "/pd/" in url:
             score += 6
-        if "/gp/product/" in url:
-            score += 4
+        if "/ps/" in url:
+            score -= 2
         if any(token in url for token in _JUNK_LINK_TOKENS):
             score -= 6
         if any(token in title for token in _JUNK_TITLE_TOKENS):
@@ -766,30 +934,15 @@ def open_best_search_result(page: Any, *, session_id: UUID) -> tuple[bool, dict[
 
 def extract_product_detail_evidence(page: Any) -> dict[str, Any]:
     variant_options = _extract_text_list(page, VARIANT_OPTION_SELECTORS, limit=10)
-    review_snippets = _extract_text_list(
-        page,
-        [
-            "#cm-cr-dp-review-list [data-hook='review-collapsed'] span",
-            "#cm-cr-dp-review-list [data-hook='review-body'] span",
-            "[data-hook='review-collapsed'] span",
-            "[data-hook='review-body'] span",
-        ],
-        limit=4,
-    )
+    review_snippets = _extract_text_list(page, PRODUCT_REVIEW_SNIPPET_SELECTORS, limit=4)
     evidence = {
-        "title": _extract_first_text(page, ["#productTitle", "span#productTitle", "h1.a-size-large span"]),
-        "price_text": _extract_first_text(
-            page,
-            ["span.a-price span.a-offscreen", "#corePrice_feature_div span.a-offscreen", "span.a-price-whole"],
-        ),
-        "availability_text": _extract_first_text(page, ["#availability span", "#availability .a-color-success"]),
-        "variant_text": _extract_first_text(
-            page,
-            ["#variation_size_name .selection", "#variation_color_name .selection", "#inline-twister-expanded-dimension-text-color_name"],
-        ),
-        "rating_text": _extract_first_text(page, ["#acrPopover span.a-icon-alt", "span[data-hook='rating-out-of-text']"]),
-        "review_count_text": _extract_first_text(page, ["#acrCustomerReviewText", "span[data-hook='total-review-count']"]),
-        "brand_text": _extract_first_text(page, ["#bylineInfo", "a#bylineInfo", "tr.po-brand td.a-span9 span"]),
+        "title": _extract_first_text(page, PRODUCT_TITLE_SELECTORS),
+        "price_text": _extract_first_text(page, PRODUCT_PRICE_SELECTORS),
+        "availability_text": _extract_first_text(page, PRODUCT_AVAILABILITY_SELECTORS),
+        "variant_text": _extract_first_text(page, PRODUCT_VARIANT_VALUE_SELECTORS),
+        "rating_text": _extract_first_text(page, PRODUCT_RATING_SELECTORS),
+        "review_count_text": _extract_first_text(page, PRODUCT_REVIEW_COUNT_SELECTORS),
+        "brand_text": _extract_first_text(page, PRODUCT_BRAND_SELECTORS),
         "review_snippets": review_snippets,
         "variant_options": variant_options,
         "url": safe_page_url(page),
@@ -919,7 +1072,7 @@ def add_current_product_to_cart(page: Any, *, session_id: UUID) -> tuple[bool, l
 def detect_checkout_entry_readiness(page: Any) -> tuple[bool | None, list[str]]:
     notes: list[str] = []
     url = _normalize_lower(safe_page_url(page))
-    if "checkout" in url or "/gp/buy/" in url:
+    if "checkout" in url:
         notes.append("already_in_checkout_path")
         return True, notes
 
@@ -953,7 +1106,7 @@ def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
         notes.extend(readiness_notes)
         if ready is True:
             current_url = _normalize_lower(safe_page_url(page))
-            if "checkout" in current_url or "/gp/buy/" in current_url:
+            if "checkout" in current_url:
                 return True, notes
             for selector in CHECKOUT_BUTTON_SELECTORS:
                 locator = safe_locator(page, selector)
@@ -983,9 +1136,7 @@ def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
 
 def extract_cart_evidence(page: Any) -> dict[str, Any]:
     cart_items: list[dict[str, Any]] = []
-    count_from_subtotal = _parse_int(
-        _extract_first_text(page, ["#sc-subtotal-label-buybox", ".sc-subtotal-label-activecart"])
-    )
+    count_from_subtotal = _parse_int(_extract_first_text(page, CART_COUNT_SELECTORS))
     row_count = 0
     for selector in CART_ROW_SELECTORS:
         locator = safe_locator(page, selector)
@@ -995,30 +1146,18 @@ def extract_cart_evidence(page: Any) -> dict[str, Any]:
         row_count = max(row_count, count)
         for index in range(min(count, 12)):
             row = _nth(locator, index)
-            title = _extract_first_text(
-                row,
-                ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
-            )
-            url = _extract_first_attr(
-                row,
-                ["a.sc-product-link", "a[href*='/dp/']", "h4 a[href]"],
-                "href",
-            )
+            title = _extract_first_text(row, CART_ROW_TITLE_SELECTORS)
+            url = _extract_first_attr(row, CART_ROW_LINK_SELECTORS, "href")
             if url and url.startswith("/"):
                 url = urljoin(AMAZON_HOME_URL, url)
-            price_text = _extract_first_text(
-                row,
-                ["span.sc-product-price", "span.a-offscreen", ".sc-price"],
+            price_text = _extract_first_text(row, CART_ROW_PRICE_SELECTORS)
+            quantity_locator = safe_locator(row, "input[name*='quantity'], input[name*='qty']")
+            quantity_text = _extract_first_text(row, CART_ROW_QUANTITY_TEXT_SELECTORS) or safe_get_attribute(
+                _first(quantity_locator) if quantity_locator is not None else row,
+                "value",
             )
-            quantity_text = _extract_first_text(
-                row,
-                ["span.a-dropdown-prompt", "span.sc-product-quantity", "input[name='quantityBox']"],
-            ) or safe_get_attribute(_first(safe_locator(row, "input[name='quantityBox']")) if safe_locator(row, "input[name='quantityBox']") is not None else row, "value")
-            variant_text = _extract_first_text(
-                row,
-                [".sc-product-variation", "span.a-size-small", ".a-color-secondary"],
-            )
-            merchant_item_ref = safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid")
+            variant_text = _extract_first_text(row, CART_ROW_VARIANT_SELECTORS)
+            merchant_item_ref = safe_get_attribute(row, "data-sku") or safe_get_attribute(row, "data-item-id")
             item_id = merchant_item_ref or url or title or f"cart-item-{index}"
             cart_items.append(
                 {
@@ -1071,13 +1210,10 @@ def remove_cart_item(
 
             for index in range(min(count, 12)):
                 row = _nth(locator, index)
-                row_item_id = _normalize_lower(safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid"))
-                row_title = _normalize_lower(
-                    _extract_first_text(
-                        row,
-                        ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
-                    )
+                row_item_id = _normalize_lower(
+                    safe_get_attribute(row, "data-sku") or safe_get_attribute(row, "data-item-id")
                 )
+                row_title = _normalize_lower(_extract_first_text(row, CART_ROW_TITLE_SELECTORS))
                 if item_id_norm and row_item_id != item_id_norm:
                     continue
                 if title_norm and title_norm not in row_title:
@@ -1136,13 +1272,10 @@ def update_cart_item_quantity(
 
             for index in range(min(count, 12)):
                 row = _nth(locator, index)
-                row_item_id = _normalize_lower(safe_get_attribute(row, "data-asin") or safe_get_attribute(row, "data-itemid"))
-                row_title = _normalize_lower(
-                    _extract_first_text(
-                        row,
-                        ["span.a-truncate-cut", ".sc-product-title", "a.sc-product-link", "h4 a"],
-                    )
+                row_item_id = _normalize_lower(
+                    safe_get_attribute(row, "data-sku") or safe_get_attribute(row, "data-item-id")
                 )
+                row_title = _normalize_lower(_extract_first_text(row, CART_ROW_TITLE_SELECTORS))
                 if item_id_norm and row_item_id != item_id_norm:
                     continue
                 if title_norm and title_norm not in row_title:
@@ -1201,44 +1334,16 @@ def extract_latest_order_evidence(page: Any) -> dict[str, Any]:
         break
 
     scope = card or page
-    title = _extract_first_text(
-        scope,
-        [
-            "a[href*='order-details']",
-            "span.a-truncate-cut",
-            ".yohtmlc-product-title",
-            "h5 a",
-        ],
-    )
+    title = _extract_first_text(scope, ORDER_TITLE_SELECTORS)
     order_id_hint = safe_get_attribute(card, "data-order-id") if card is not None else None
     if not order_id_hint:
-        order_id_hint = _extract_first_text(scope, ["span.order-id", "bdi", ".a-color-secondary"])
-    order_date_text = _extract_first_text(
-        scope,
-        ["span.order-info .a-color-secondary", ".order-date-invoice-item", ".a-color-secondary"],
-    )
-    shipping_stage_text = _extract_first_text(
-        scope,
-        [".shipment-progress-text", ".a-color-success", ".delivery-status", ".a-text-bold"],
-    )
-    expected_delivery_text = _extract_first_text(
-        scope,
-        [".js-delivery-text", ".a-color-base", ".delivery-box__primary-text"],
-    )
-    order_total_text = _extract_first_text(
-        scope,
-        [".a-color-price", ".order-total", ".grand-total-price"],
-    )
-    returns_entry_hint = _extract_first_attr(
-        scope,
-        ["a[href*='returns']", "a[href*='return']", "a[href*='contact-us']"],
-        "href",
-    )
-    support_entry_hint = _extract_first_attr(
-        scope,
-        ["a[href*='contact-us']", "a[href*='help']", "a[href*='support']"],
-        "href",
-    )
+        order_id_hint = _extract_first_text(scope, ORDER_ID_SELECTORS)
+    order_date_text = _extract_first_text(scope, ORDER_DATE_SELECTORS)
+    shipping_stage_text = _extract_first_text(scope, ORDER_STATUS_SELECTORS)
+    expected_delivery_text = _extract_first_text(scope, ORDER_ETA_SELECTORS)
+    order_total_text = _extract_first_text(scope, ORDER_TOTAL_SELECTORS)
+    returns_entry_hint = _extract_first_attr(scope, ORDER_RETURNS_LINK_SELECTORS, "href")
+    support_entry_hint = _extract_first_attr(scope, ORDER_SUPPORT_LINK_SELECTORS, "href")
     if returns_entry_hint and returns_entry_hint.startswith("/"):
         returns_entry_hint = urljoin(AMAZON_HOME_URL, returns_entry_hint)
     if support_entry_hint and support_entry_hint.startswith("/"):
@@ -1364,17 +1469,19 @@ def infer_page_hints(
         hints.append("captcha")
     if "otp" in url or "otp" in title or "verification code" in title:
         hints.append("otp")
-    if "order-history" in url or "your orders" in title:
+    if "login" in url or "login" in title or "sign in" in title:
+        hints.append("login")
+    if "order-history" in url or "order history" in title or "my orders" in title:
         hints.append("orders")
-    if checkout_ready is True or "checkout" in url or "checkout" in title or "/gp/buy/" in url:
+    if checkout_ready is True or "checkout" in url or "checkout" in title:
         hints.append("checkout")
     if cart_item_count is not None or "cart" in url or "cart" in title:
         hints.append("cart")
-    if primary_product is not None or "/dp/" in url or "/gp/product/" in url:
+    if primary_product is not None or "/pd/" in url:
         hints.append("product_detail")
-    if product_candidates or "/s?" in url:
+    if product_candidates or "/ps/" in url or "?q=" in url:
         hints.append("search_results")
-    if not hints and "amazon.in" in url:
+    if not hints and "bigbasket.com" in url:
         hints.append("home")
     if not hints:
         hints.append("unknown")
@@ -1397,7 +1504,7 @@ def recover_to_stable_page(page: Any, *, preferred: str | None = None) -> dict[s
 
     target_urls = {
         "home": AMAZON_HOME_URL,
-        "search": f"{AMAZON_HOME_URL}/s?k={quote_plus('dog food')}",
+        "search": f"{AMAZON_HOME_URL}/ps/?q={quote_plus('dog food')}",
         "cart": AMAZON_CART_URL,
     }
 

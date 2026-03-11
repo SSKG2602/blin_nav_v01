@@ -29,7 +29,7 @@ def test_create_and_get_session_round_trip(db_session: Session) -> None:
     created = create_session(
         db_session,
         SessionCreate(
-            merchant=Merchant.AMAZON,
+            merchant=Merchant.DEMO_STORE,
             locale="en-IN",
             screen_reader="VoiceOver",
             client_version="0.1.0",
@@ -40,14 +40,14 @@ def test_create_and_get_session_round_trip(db_session: Session) -> None:
 
     assert fetched is not None
     assert fetched.session_id == created.session_id
-    assert fetched.merchant == Merchant.AMAZON
+    assert fetched.merchant == Merchant.DEMO_STORE
     assert fetched.status == SessionStatus.ACTIVE
     assert isinstance(fetched.session_id, UUID)
     assert fetched.created_at is not None
 
 
 def test_list_sessions_orders_by_created_at(db_session: Session) -> None:
-    s1 = create_session(db_session, SessionCreate(merchant=Merchant.AMAZON))
+    s1 = create_session(db_session, SessionCreate(merchant=Merchant.DEMO_STORE))
     s2 = create_session(db_session, SessionCreate(merchant=Merchant.FLIPKART))
     s3 = create_session(db_session, SessionCreate(merchant=Merchant.MEESHO))
 
@@ -60,7 +60,7 @@ def test_list_sessions_orders_by_created_at(db_session: Session) -> None:
 
 
 def test_append_and_list_agent_logs(db_session: Session) -> None:
-    created = create_session(db_session, SessionCreate(merchant=Merchant.AMAZON))
+    created = create_session(db_session, SessionCreate(merchant=Merchant.DEMO_STORE))
     entry = AgentLogEntry(
         session_id=created.session_id,
         step_type=AgentStepType.NAVIGATION,

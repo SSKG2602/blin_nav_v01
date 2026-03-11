@@ -22,7 +22,7 @@ The current repo implements the bounded non-future flow for:
 - sensitive checkpoints for OTP, CAPTCHA, and payment-auth events
 - final verbal confirmation before purchase
 - browser activity visibility through screenshot, URL, and status polling
-- BigBasket connect flow surfaced in the shell
+- a bounded public demo-store flow on `demo.nopcommerce.com`
 - final user-verifiable session summary
 - basic post-purchase support, latest-order handling, and bounded order cancellation
 
@@ -43,7 +43,7 @@ BlindNav here is:
 
 - deterministic, not unconstrained
 - browser-grounded, not blind-action automation
-- bounded to the current demo flow and supported merchant path
+- bounded to the current demo flow and single rehearsed public merchant path
 - honest about current implementation state
 
 BlindNav here is not claimed to be:

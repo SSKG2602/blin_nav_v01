@@ -40,8 +40,8 @@ def _assessment(decision: MultimodalDecision, confidence: float = 0.6) -> Multim
 
 def test_trust_assessment_trusted_known_merchant() -> None:
     assessment = derive_trust_assessment(
-        observation={"observed_url": "https://www.amazon.in/dp/B0TESTSKU"},
-        expected_merchant="amazon.in",
+        observation={"observed_url": "https://demo.nopcommerce.com/build-your-own-computer"},
+        expected_merchant="demo.nopcommerce.com",
     )
     assert assessment.status == TrustStatus.TRUSTED
     assert assessment.https_present is True
@@ -50,8 +50,8 @@ def test_trust_assessment_trusted_known_merchant() -> None:
 
 def test_trust_assessment_suspicious_lookalike_url() -> None:
     assessment = derive_trust_assessment(
-        observation={"observed_url": "http://amaz0n-login.example.com/product"},
-        expected_merchant="amazon.in",
+        observation={"observed_url": "http://demo-nopcommerce-login.example.com/product"},
+        expected_merchant="demo.nopcommerce.com",
     )
     assert assessment.status == TrustStatus.SUSPICIOUS
     assert assessment.lookalike_risk is True
@@ -60,7 +60,7 @@ def test_trust_assessment_suspicious_lookalike_url() -> None:
 def test_trust_assessment_unverified_unknown_url() -> None:
     assessment = derive_trust_assessment(
         observation={"observed_url": "https://store.example.org/item"},
-        expected_merchant="amazon.in",
+        expected_merchant="demo.nopcommerce.com",
     )
     assert assessment.status == TrustStatus.UNVERIFIED
     assert assessment.domain == "store.example.org"
@@ -166,7 +166,7 @@ def test_post_purchase_summary_detected_and_fallback() -> None:
             confidence=0.85,
             primary_product=ProductCandidate(title="Dog Food 3kg", price_text="₹799"),
         ),
-        observation={"observed_url": "https://www.amazon.in/order-confirmation"},
+        observation={"observed_url": "https://demo.nopcommerce.com/checkout/completed/1"},
     )
     assert "order appears placed" in detected.spoken_summary.lower()
     assert detected.order_item_title == "Dog Food 3kg"

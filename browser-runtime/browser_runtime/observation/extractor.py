@@ -145,7 +145,7 @@ def extract_observation_from_snapshot(snapshot: dict[str, Any]) -> RuntimePageOb
             dict.fromkeys(["access_denied", "unknown", *detected_page_hints])
         )
         if notes is None:
-            notes = "BigBasket blocked the runtime browser session."
+            notes = "The demo store blocked the runtime browser session."
     if notes is None and detected_page_hints == ["unknown"]:
         notes = "Could not extract strong page evidence."
 
@@ -189,7 +189,7 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
             observed_url=observed_url,
             page_title=page_title,
             detected_page_hints=["access_denied", "unknown"],
-            notes="BigBasket blocked the runtime browser session.",
+            notes="The demo store blocked the runtime browser session.",
         )
 
     if page_state == "login":
@@ -316,7 +316,7 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         notes_list.append("order_confirmation_detected")
 
     if "access_denied" in hints:
-        notes_list.append("bigbasket_runtime_blocked")
+        notes_list.append("demo_store_runtime_blocked")
 
     if hints == ["unknown"]:
         notes_list.append("weak_page_evidence")

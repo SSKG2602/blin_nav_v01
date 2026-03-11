@@ -76,7 +76,7 @@ After automated tests pass, run a manual local smoke pass through the operator s
 8. confirm the backend responds and browser-native TTS plays the spoken reply
 9. confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text
 10. verify clarification, checkpoint, or final-confirmation surfaces if triggered
-11. verify `Connect Amazon.in` is reachable and status feedback appears in the shell
+11. verify the live runtime lands on `demo.nopcommerce.com` without any merchant connect step
 12. verify cart controls, latest-order loading, and bounded order cancellation when the flow makes them relevant
 13. verify session history, closure artifacts, and post-purchase summary visibility
 

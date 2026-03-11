@@ -19,8 +19,6 @@ from app.tools.dependencies import get_browser_runtime_client
 
 class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
-        self.last_connection_status_request: dict[str, Any] | None = None
-        self.last_cookie_load_request: dict[str, Any] | None = None
         self.observation_payload: dict[str, Any] = {
             "observed_url": "https://www.amazon.in/gp/cart/view.html",
             "page_title": "Shopping Cart",
@@ -153,42 +151,6 @@ class FakeBrowserRuntimeClient:
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return {}
 
-    def get_connection_status(self, *, session_id: UUID, merchant_domain: str) -> dict[str, Any]:
-        self.last_connection_status_request = {
-            "session_id": session_id,
-            "merchant_domain": merchant_domain,
-        }
-        if merchant_domain == Merchant.BIGBASKET.value:
-            return {
-                "connected": True,
-                "cookie_count": 3,
-                "current_url": "https://www.bigbasket.com/",
-                "notes": None,
-            }
-        return {
-            "connected": True,
-            "cookie_count": 4,
-            "current_url": "https://www.amazon.in/",
-            "notes": None,
-        }
-
-    def set_connection_cookies(self, *, session_id: UUID, cookies: str, merchant_domain: str) -> None:
-        self.last_cookie_load_request = {
-            "session_id": session_id,
-            "cookies": cookies,
-            "merchant_domain": merchant_domain,
-        }
-
-    def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
-        return self.get_connection_status(session_id=session_id, merchant_domain=Merchant.AMAZON.value)
-
-    def set_amazon_cookies(self, *, session_id: UUID, cookies: str) -> None:
-        self.set_connection_cookies(
-            session_id=session_id,
-            cookies=cookies,
-            merchant_domain=Merchant.AMAZON.value,
-        )
-
 
 @pytest.fixture
 def testing_session_local():
@@ -275,70 +237,6 @@ def test_cancel_latest_order_endpoint_returns_spoken_confirmation(client: TestCl
     payload = response.json()
     assert payload["cancelled"] is True
     assert payload["spoken_summary"] == "Your order for Pedigree dog food 3kg has been cancelled."
-
-
-def test_amazon_status_endpoint_proxies_runtime_cookie_state(client: TestClient) -> None:
-    session_id = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()["session_id"]
-
-    response = client.get(f"/api/auth/amazon/status/{session_id}")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connected"] is True
-    assert payload["cookie_count"] == 4
-
-
-def test_bigbasket_status_endpoint_proxies_runtime_cookie_state(
-    client: TestClient,
-    fake_browser_client: FakeBrowserRuntimeClient,
-) -> None:
-    session_id = client.post("/api/sessions", json={"merchant": "bigbasket.com"}).json()["session_id"]
-
-    response = client.get(f"/api/auth/bigbasket/status/{session_id}")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connected"] is True
-    assert payload["cookie_count"] == 3
-    assert fake_browser_client.last_connection_status_request == {
-        "session_id": UUID(session_id),
-        "merchant_domain": Merchant.BIGBASKET.value,
-    }
-
-
-def test_legacy_amazon_status_endpoint_uses_session_merchant_for_bigbasket_session(
-    client: TestClient,
-    fake_browser_client: FakeBrowserRuntimeClient,
-) -> None:
-    session_id = client.post("/api/sessions", json={"merchant": "bigbasket.com"}).json()["session_id"]
-
-    response = client.get(f"/api/auth/amazon/status/{session_id}")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connected"] is True
-    assert payload["cookie_count"] == 3
-    assert fake_browser_client.last_connection_status_request == {
-        "session_id": UUID(session_id),
-        "merchant_domain": Merchant.BIGBASKET.value,
-    }
-
-
-def test_bigbasket_cookie_save_forwards_session_merchant_domain_to_runtime(
-    client: TestClient,
-    fake_browser_client: FakeBrowserRuntimeClient,
-) -> None:
-    session_id = client.post("/api/sessions", json={"merchant": "bigbasket.com"}).json()["session_id"]
-    cookies = '[{"domain":".bigbasket.com","name":"bb","value":"1"}]'
-
-    response = client.post(
-        "/api/auth/bigbasket/cookies",
-        json={"session_id": session_id, "cookies": cookies},
-    )
-    assert response.status_code == 200
-    assert response.json() == {"connected": True}
-    assert fake_browser_client.last_cookie_load_request == {
-        "session_id": UUID(session_id),
-        "cookies": cookies,
-        "merchant_domain": Merchant.BIGBASKET.value,
-    }
 
 
 def test_update_cart_quantity_endpoint_persists_context(client: TestClient) -> None:

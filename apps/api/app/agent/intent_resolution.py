@@ -7,7 +7,7 @@ from app.schemas.intent import InterpretedUserIntent, ShoppingAction
 from app.schemas.product_verification import ProductIntentSpec
 
 _SIZE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s?(kg|g|mg|ml|l|pack|packs|pc|pcs)")
-_MERCHANT_TOKENS = {"amazon", "amazonin", "flipkart", "meesho"}
+_MERCHANT_TOKENS = {"amazon", "amazonin", "flipkart", "meesho", "nopcommerce", "demostore"}
 
 
 def _map_action(intent_text: str) -> ShoppingAction:

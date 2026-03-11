@@ -34,8 +34,8 @@ class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.observation_payload: dict[str, Any] = {
-            "observed_url": "https://www.amazon.in/s?k=dog+food",
-            "page_title": "Results",
+            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+            "page_title": "Search",
             "detected_page_hints": ["search_results"],
             "product_candidates": [{"title": "Pedigree Dog Food", "price_text": "₹799"}],
         }
@@ -85,7 +85,7 @@ class FakeBrowserRuntimeClient:
     def finalize_purchase(self, *, session_id: UUID) -> None:
         self.calls.append({"method": "finalize_purchase", "session_id": session_id})
         self.observation_payload = {
-            "observed_url": "https://www.amazon.in/gp/your-account/order-confirmation",
+            "observed_url": "https://demo.nopcommerce.com/checkout/completed/1",
             "page_title": "Thank you, your order has been placed",
             "detected_page_hints": ["checkout"],
             "primary_product": {"title": "Pedigree Dog Food", "price_text": "₹799"},
@@ -114,7 +114,7 @@ class FakeLLMClient:
         return InterpretedUserIntent(
             raw_utterance=utterance,
             action=ShoppingAction.SEARCH_PRODUCT,
-            merchant="amazon.in",
+            merchant="demo.nopcommerce.com",
             product_intent=ProductIntentSpec(raw_query=utterance, product_name=utterance),
             confidence=0.8,
             requires_clarification=False,
@@ -251,7 +251,7 @@ def client(
 
 
 def _create_live_session(client: TestClient) -> dict[str, Any]:
-    response = client.post("/api/live/sessions", json={"merchant": "amazon.in"})
+    response = client.post("/api/live/sessions", json={"merchant": "demo.nopcommerce.com"})
     assert response.status_code == 201
     return response.json()
 
@@ -292,7 +292,7 @@ def test_create_live_session_endpoint(client: TestClient) -> None:
 
 
 def test_create_live_session_endpoint_normalizes_locale(client: TestClient) -> None:
-    response = client.post("/api/live/sessions", json={"merchant": "amazon.in", "locale": "hi-IN"})
+    response = client.post("/api/live/sessions", json={"merchant": "demo.nopcommerce.com", "locale": "hi-IN"})
     assert response.status_code == 201
     payload = response.json()
     assert payload["locale"] == "hi-IN"
@@ -327,7 +327,7 @@ def test_live_websocket_checkpoint_event_emitted(
 ) -> None:
     fake_llm_client.multimodal_decision = MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+        "observed_url": "https://demo.nopcommerce.com/checkout",
         "page_title": "Checkout",
         "detected_page_hints": ["checkout"],
         "checkout_ready": True,

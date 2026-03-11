@@ -11,10 +11,10 @@ from app.schemas.product_verification import (
 
 def test_fallback_intent_parsing_for_search_query() -> None:
     service = GeminiIntentSummaryService(api_key="")
-    result = service.interpret_user_intent("Find Pedigree dog food 3kg on amazon")
+    result = service.interpret_user_intent("Find Pedigree dog food 3kg on demo.nopcommerce.com")
 
     assert result.action == ShoppingAction.SEARCH_PRODUCT
-    assert result.merchant == "amazon.in"
+    assert result.merchant == "demo.nopcommerce.com"
     assert result.product_intent is not None
     assert result.product_intent.brand == "pedigree"
     assert result.product_intent.size_text == "3kg"
@@ -34,11 +34,11 @@ def test_fallback_intent_parsing_for_cancel_and_checkout() -> None:
 def test_fallback_intent_parsing_supports_hindi_keywords() -> None:
     service = GeminiIntentSummaryService(api_key="")
 
-    search_intent = service.interpret_user_intent("amazon पर pedigree dog food 3kg खोजो")
+    search_intent = service.interpret_user_intent("nopcommerce पर pedigree dog food 3kg खोजो")
     checkout_intent = service.interpret_user_intent("checkout करो")
 
     assert search_intent.action == ShoppingAction.SEARCH_PRODUCT
-    assert search_intent.merchant == "amazon.in"
+    assert search_intent.merchant == "demo.nopcommerce.com"
     assert search_intent.product_intent is not None
     assert search_intent.product_intent.size_text == "3kg"
     assert checkout_intent.action == ShoppingAction.PROCEED_CHECKOUT

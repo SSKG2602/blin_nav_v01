@@ -9,13 +9,9 @@ from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-BB_HOME_URL = "https://www.bigbasket.com"
-BB_CART_URL = "https://www.bigbasket.com/basket/"
-BB_ORDERS_URL = "https://www.bigbasket.com/order/order-history/"
-
-AMAZON_HOME_URL = BB_HOME_URL
-AMAZON_CART_URL = BB_CART_URL
-AMAZON_ORDERS_URL = BB_ORDERS_URL
+BB_HOME_URL = "https://demo.nopcommerce.com"
+BB_CART_URL = "https://demo.nopcommerce.com/cart"
+BB_ORDERS_URL = "https://demo.nopcommerce.com/customer/orders"
 
 SEARCH_INPUT_SELECTORS = [
     "input[id='search']",
@@ -767,7 +763,7 @@ def dismiss_common_interruptions(page: Any) -> list[str]:
 
 
 def detect_location_blocked(page: Any) -> bool:
-    """Returns True if BigBasket is showing a location/pincode modal blocking the page."""
+    """Returns True if a merchant modal is blocking the current page."""
     for selector in BB_LOCATION_MODAL_SELECTORS:
         locator = safe_locator(page, selector)
         if locator is None or safe_count(locator) <= 0:
@@ -802,15 +798,15 @@ def classify_page_state(page: Any) -> str:
         return "login"
     if "checkout" in url:
         return "checkout"
-    if "/basket/" in url or ("basket" in url and "bigbasket" not in url):
+    if "/cart" in url or "/basket/" in url or ("basket" in url and "shoppingcart" not in url):
         return "cart"
     if "/bb-cart/" in url:
         return "cart"
-    if "/pd/" in url:
+    if "/product" in url:
         return "product"
-    if "/ps/" in url or "?q=" in url or "search" in url:
+    if "/search" in url or "?q=" in url or "search" in url:
         return "search_results"
-    if "bigbasket.com" in url:
+    if "demo.nopcommerce.com" in url:
         return "home"
     return "unknown"
 
@@ -892,7 +888,7 @@ def submit_search_query(page: Any, query: str | None) -> tuple[bool, list[str]]:
         notes.append("search_results_already_loaded")
         return True, notes
 
-    fallback_url = f"https://www.bigbasket.com/ps/?q={query_text.replace(' ', '+')}"
+    fallback_url = f"{BB_HOME_URL}/search?q={query_text.replace(' ', '+')}"
 
     for attempt in range(2):
         target = None
@@ -1717,7 +1713,7 @@ def infer_page_hints(
         hints.append("otp")
     if "login" in url or "login" in title or "sign in" in title:
         hints.append("login")
-    if "order-history" in url or "order history" in title or "my orders" in title:
+    if "customer/orders" in url or "order history" in title or "my orders" in title:
         hints.append("orders")
     if checkout_ready is True or "checkout" in url or "checkout" in title:
         hints.append("checkout")
@@ -1725,9 +1721,9 @@ def infer_page_hints(
         hints.append("cart")
     if primary_product is not None or "/pd/" in url:
         hints.append("product_detail")
-    if product_candidates or "/ps/" in url or "?q=" in url:
+    if product_candidates or "/search" in url or "?q=" in url:
         hints.append("search_results")
-    if "access_denied" not in hints and not hints and "bigbasket.com" in url:
+    if "access_denied" not in hints and not hints and "demo.nopcommerce.com" in url:
         hints.append("home")
     if not hints:
         hints.append("unknown")
@@ -1750,7 +1746,7 @@ def recover_to_stable_page(page: Any, *, preferred: str | None = None) -> dict[s
 
     target_urls = {
         "home": BB_HOME_URL,
-        "search": f"{BB_HOME_URL}/ps/?q={quote_plus('dog food')}",
+        "search": f"{BB_HOME_URL}/search?q={quote_plus('dog food')}",
         "cart": BB_CART_URL,
     }
 

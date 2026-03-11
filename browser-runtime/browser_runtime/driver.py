@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 from typing import Any, Dict, TypeVar
-from urllib.parse import urlparse
 from uuid import UUID
 
 from browser_runtime.automation.helpers import (
@@ -76,131 +75,6 @@ def _navigating_screenshot_payload() -> dict[str, Any]:
         "source": "runtime",
         "notes": "Navigation in progress.",
     }
-
-
-def _normalize_same_site(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-
-    normalized = value.strip().lower()
-    if normalized in {"lax"}:
-        return "Lax"
-    if normalized in {"strict"}:
-        return "Strict"
-    if normalized in {"none", "no_restriction", "no restriction"}:
-        return "None"
-    return None
-
-
-def _normalize_cookie_payload(cookie: Any) -> dict[str, Any]:
-    if not isinstance(cookie, dict):
-        raise ValueError("Each cookie entry must be an object.")
-
-    name = cookie.get("name")
-    value = cookie.get("value")
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("Each cookie must include a non-empty name.")
-    if not isinstance(value, str):
-        raise ValueError(f'Cookie "{name}" must include a string value.')
-
-    normalized: dict[str, Any] = {
-        "name": name,
-        "value": value,
-    }
-
-    url = cookie.get("url")
-    domain = cookie.get("domain")
-    path = cookie.get("path")
-    if isinstance(url, str) and url.strip():
-        normalized["url"] = url.strip()
-    elif isinstance(domain, str) and domain.strip():
-        normalized["domain"] = domain.strip()
-        normalized["path"] = path.strip() if isinstance(path, str) and path.strip() else "/"
-    else:
-        raise ValueError(f'Cookie "{name}" must include a valid url or domain.')
-
-    expires = cookie.get("expires", cookie.get("expirationDate"))
-    if isinstance(expires, (int, float)) and expires > 0:
-        normalized["expires"] = float(expires)
-
-    if isinstance(cookie.get("secure"), bool):
-        normalized["secure"] = cookie["secure"]
-    if isinstance(cookie.get("httpOnly"), bool):
-        normalized["httpOnly"] = cookie["httpOnly"]
-
-    same_site = _normalize_same_site(cookie.get("sameSite"))
-    if same_site is not None:
-        normalized["sameSite"] = same_site
-
-    return normalized
-
-
-def _normalize_domain_candidate(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-
-    text = value.strip().lower()
-    if not text:
-        return None
-
-    parsed = urlparse(text if "://" in text else f"https://{text}")
-    host = parsed.hostname
-    if isinstance(host, str) and host:
-        text = host.lower()
-    else:
-        text = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
-        if ":" in text:
-            text = text.split(":", 1)[0]
-
-    normalized = text.lstrip(".").rstrip(".")
-    return normalized or None
-
-
-def _domain_matches_target(candidate: str | None, target: str | None) -> bool:
-    if candidate is None or target is None:
-        return False
-    return candidate == target or candidate.endswith(f".{target}")
-
-
-def _cookie_matches_merchant_domain(cookie: dict[str, Any], merchant_domain: str | None) -> bool:
-    if merchant_domain is None:
-        return False
-
-    domain_candidate = _normalize_domain_candidate(cookie.get("domain"))
-    if _domain_matches_target(domain_candidate, merchant_domain):
-        return True
-
-    url_candidate = _normalize_domain_candidate(cookie.get("url"))
-    return _domain_matches_target(url_candidate, merchant_domain)
-
-
-def _infer_cookie_target_domain(cookies_list: list[dict[str, Any]]) -> str | None:
-    for cookie in cookies_list:
-        domain_candidate = _normalize_domain_candidate(cookie.get("domain"))
-        if domain_candidate is not None:
-            return domain_candidate
-
-        url_candidate = _normalize_domain_candidate(cookie.get("url"))
-        if url_candidate is not None:
-            return url_candidate
-
-    return None
-
-
-def _merchant_home_url(merchant_domain: str | None) -> str | None:
-    normalized = _normalize_domain_candidate(merchant_domain)
-    if normalized is None:
-        return None
-    if normalized.startswith("www."):
-        return f"https://{normalized}"
-    return f"https://www.{normalized}"
-
-
-def _missing_cookie_note(merchant_domain: str | None) -> str:
-    normalized = _normalize_domain_candidate(merchant_domain)
-    if normalized is None:
-        return "No merchant cookies detected in the runtime session."
-    return f"No {normalized} cookies detected in the runtime session."
 
 
 class DummyPage:
@@ -473,7 +347,7 @@ class BrowserSessionManager:
                 blocked_notes.append("Waiting for location selection.")
             if detect_access_denied(page):
                 blocked_hints.extend(["access_denied", "unknown"])
-                blocked_notes.append("BigBasket blocked the runtime browser session.")
+                blocked_notes.append("The demo store blocked the runtime browser session.")
             page_state = classify_page_state(page)
             if page_state == "login":
                 blocked_hints.append("login")
@@ -510,113 +384,6 @@ class BrowserSessionManager:
             return extract_current_page_screenshot(page).model_dump()
 
         return self._executor.submit(_run).result()
-
-    def get_connection_status(
-        self,
-        session_id: UUID,
-        merchant_domain: str | None = None,
-    ) -> dict[str, Any]:
-        def _run() -> dict[str, Any]:
-            self._ensure_browser_started()
-            page = self._get_or_create_page_for_session(session_id)
-            context = self._contexts.get(session_id)
-            current_url = getattr(page, "url", None)
-            current_url_text = current_url if isinstance(current_url, str) and current_url else None
-            resolved_domain = _normalize_domain_candidate(merchant_domain) or _normalize_domain_candidate(
-                current_url_text
-            )
-            if context is None:
-                return {
-                    "connected": False,
-                    "cookie_count": 0,
-                    "current_url": current_url_text,
-                    "notes": "No Playwright browser context is available for this session.",
-                }
-
-            cookies_fn = getattr(context, "cookies", None)
-            if not callable(cookies_fn):
-                return {
-                    "connected": False,
-                    "cookie_count": 0,
-                    "current_url": current_url_text,
-                    "notes": "Browser context does not expose cookies.",
-                }
-
-            try:
-                raw_cookies = cookies_fn()
-            except Exception as exc:
-                logger.debug("Failed to inspect browser cookies for session %s", session_id, exc_info=True)
-                return {
-                    "connected": False,
-                    "cookie_count": 0,
-                    "current_url": current_url_text,
-                    "notes": f"Cookie inspection failed: {exc}",
-                }
-
-            matching_cookies = [
-                cookie
-                for cookie in raw_cookies or []
-                if isinstance(cookie, dict) and _cookie_matches_merchant_domain(cookie, resolved_domain)
-            ]
-            return {
-                "connected": len(matching_cookies) > 0,
-                "cookie_count": len(matching_cookies),
-                "current_url": current_url_text,
-                "notes": None if matching_cookies else _missing_cookie_note(resolved_domain),
-            }
-
-        return self._executor.submit(_run).result()
-
-    def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
-        return self.get_connection_status(session_id, merchant_domain="amazon.in")
-
-    def set_session_cookies(
-        self,
-        session_id: UUID,
-        cookies_list: list[Any],
-        merchant_domain: str | None = None,
-    ) -> None:
-        normalized_cookies = [_normalize_cookie_payload(cookie) for cookie in cookies_list]
-        if not normalized_cookies:
-            raise ValueError("No cookies were provided.")
-        target_domain = _normalize_domain_candidate(merchant_domain) or _infer_cookie_target_domain(
-            normalized_cookies
-        )
-        target_url = _merchant_home_url(target_domain)
-
-        with self._lock:
-            self._navigating[session_id] = True
-
-        def _run() -> None:
-            self._ensure_browser_started()
-            page = self._get_or_create_page_for_session(session_id)
-            context = self._contexts.get(session_id)
-            if context is None:
-                raise RuntimeError("No Playwright browser context is available for this session.")
-
-            add_cookies_fn = getattr(context, "add_cookies", None)
-            if not callable(add_cookies_fn):
-                raise RuntimeError("Browser context does not support cookie injection.")
-
-            try:
-                add_cookies_fn(normalized_cookies)
-                if target_url is not None:
-                    page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-                else:
-                    page.reload(wait_until="domcontentloaded")
-            except Exception:
-                logger.exception("Asynchronous cookie navigation failed for session %s", session_id)
-                raise
-            finally:
-                with self._lock:
-                    self._navigating[session_id] = False
-
-        try:
-            self._executor.submit(_run).result()
-        except Exception:
-            with self._lock:
-                self._navigating[session_id] = False
-            raise
 
     def close_session(self, session_id: UUID) -> None:
         def _run() -> None:

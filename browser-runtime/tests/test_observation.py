@@ -41,7 +41,7 @@ class _BodyLocator:
 
 class _AccessDeniedPage:
     def __init__(self) -> None:
-        self.url = "https://www.bigbasket.com/"
+        self.url = "https://demo.nopcommerce.com/"
 
     def title(self) -> str:
         return "Access Denied"
@@ -80,8 +80,8 @@ def test_dummy_mode_observation_endpoint_returns_unknown_safe_payload() -> None:
 def test_search_results_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://www.amazon.in/s?k=dog+food",
-            "page_title": "Amazon.in : dog food",
+            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+            "page_title": "Search",
             "product_candidates": [
                 {"title": "Pedigree Adult Dog Food 3kg", "price_text": "₹799"},
                 {"title": "Drools Dog Food 3kg", "price_text": "₹699"},
@@ -96,7 +96,7 @@ def test_search_results_like_observation_snapshot() -> None:
 def test_product_detail_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://www.amazon.in/dp/B0TESTSKU",
+            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
             "page_title": "Pedigree Adult Dog Food",
             "primary_product": {
                 "title": "Pedigree Adult Dog Food",
@@ -114,8 +114,8 @@ def test_product_detail_like_observation_snapshot() -> None:
 def test_cart_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://www.amazon.in/gp/cart/view.html",
-            "page_title": "Amazon Cart",
+            "observed_url": "https://demo.nopcommerce.com/cart",
+            "page_title": "Shopping cart",
             "cart_item_count": 2,
         }
     )
@@ -127,7 +127,7 @@ def test_cart_like_observation_snapshot() -> None:
 def test_checkout_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
+            "observed_url": "https://demo.nopcommerce.com/checkout",
             "page_title": "Checkout - Address",
             "checkout_ready": True,
         }
@@ -140,20 +140,20 @@ def test_checkout_like_observation_snapshot() -> None:
 def test_access_denied_snapshot_is_not_classified_as_home() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://www.bigbasket.com/",
+            "observed_url": "https://demo.nopcommerce.com/",
             "page_title": "Access Denied",
         }
     )
 
     assert observation.detected_page_hints[:2] == ["access_denied", "unknown"]
-    assert observation.notes == "BigBasket blocked the runtime browser session."
+    assert observation.notes == "The demo store blocked the runtime browser session."
 
 
 def test_access_denied_current_page_observation_returns_blocked_hints() -> None:
     observation = extract_current_page_observation(_AccessDeniedPage())
 
     assert observation.detected_page_hints == ["access_denied", "unknown"]
-    assert observation.notes == "BigBasket blocked the runtime browser session."
+    assert observation.notes == "The demo store blocked the runtime browser session."
 
 
 def test_dummy_mode_screenshot_endpoint_returns_safe_payload() -> None:

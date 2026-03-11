@@ -42,8 +42,8 @@ def test_http_browser_runtime_observation_success(monkeypatch: pytest.MonkeyPatc
             return _FakeResponse(
                 status_code=200,
                 payload={
-                    "observed_url": "https://www.amazon.in/s?k=dog+food",
-                    "page_title": "Results",
+                    "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+                    "page_title": "Search",
                     "detected_page_hints": ["search_results"],
                     "product_candidates": [],
                     "primary_product": None,
@@ -207,7 +207,7 @@ def test_http_browser_runtime_screenshot_failure_returns_empty_dict(
 def test_build_page_understanding_from_browser_observation() -> None:
     understanding = build_page_understanding_from_browser_observation(
         {
-            "observed_url": "https://www.amazon.in/s?k=dog+food",
+            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
             "page_title": "Search results",
             "detected_page_hints": ["search_results"],
             "product_candidates": [
@@ -224,14 +224,14 @@ def test_build_page_understanding_from_browser_observation() -> None:
 def test_build_page_understanding_from_blocked_browser_observation() -> None:
     understanding = build_page_understanding_from_browser_observation(
         {
-            "observed_url": "https://www.bigbasket.com/",
+            "observed_url": "https://demo.nopcommerce.com/",
             "page_title": "Access Denied",
             "detected_page_hints": ["access_denied", "unknown"],
         }
     )
 
     assert understanding.page_type == PageType.UNKNOWN
-    assert understanding.notes == "BigBasket blocked the runtime browser session."
+    assert understanding.notes == "The demo store blocked the runtime browser session."
     assert understanding.confidence <= 0.10
     assert understanding.primary_product is None
 
@@ -240,8 +240,8 @@ def test_capture_page_understanding_from_browser_client() -> None:
     class _FakeBrowserClient:
         def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
             return {
-                "observed_url": "https://www.amazon.in/gp/cart/view.html",
-                "page_title": "Amazon Cart",
+                "observed_url": "https://demo.nopcommerce.com/cart",
+                "page_title": "Shopping cart",
                 "detected_page_hints": ["cart"],
                 "cart_item_count": 2,
             }
@@ -303,8 +303,8 @@ def test_capture_page_understanding_hybrid_uses_ocr_before_visual_fallback(
     class _FakeBrowserClient:
         def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:
             return {
-                "observed_url": "https://www.amazon.in/gp/cart/view.html",
-                "page_title": "Amazon",
+                "observed_url": "https://demo.nopcommerce.com/cart",
+                "page_title": "Shopping cart",
             }
 
         def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:

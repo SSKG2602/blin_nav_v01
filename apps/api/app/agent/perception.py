@@ -161,7 +161,7 @@ def _infer_page_type(
         return PageType.SEARCH_RESULTS
     if raw_data.get("is_home") is True:
         return PageType.HOME
-    if "amazon.in" in url_text and "/s?" not in url_text and "cart" not in url_text:
+    if "demo.nopcommerce.com" in url_text and "/search" not in url_text and "cart" not in url_text:
         return PageType.HOME
 
     return PageType.UNKNOWN
@@ -240,7 +240,7 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
 
     notes = raw_data.get("notes") if isinstance(raw_data.get("notes"), str) else None
     if notes is None and raw_data.get("blocked_page") is True:
-        notes = "BigBasket blocked the runtime browser session."
+        notes = "The demo store blocked the runtime browser session."
     if notes is None and page_type == PageType.UNKNOWN:
         notes = "Page type could not be inferred from current signals."
 

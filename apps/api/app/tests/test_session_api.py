@@ -51,7 +51,7 @@ def test_create_and_get_session(client: TestClient) -> None:
     create_response = client.post(
         "/api/sessions",
         json={
-            "merchant": "amazon.in",
+            "merchant": "demo.nopcommerce.com",
             "locale": "en-IN",
             "screen_reader": "VoiceOver",
             "client_version": "0.1.0",
@@ -59,7 +59,7 @@ def test_create_and_get_session(client: TestClient) -> None:
     )
     assert create_response.status_code == 201
     created = create_response.json()
-    assert created["merchant"] == "amazon.in"
+    assert created["merchant"] == "demo.nopcommerce.com"
     assert created["status"] == "active"
     assert created["session_id"]
     assert created["created_at"]
@@ -68,12 +68,12 @@ def test_create_and_get_session(client: TestClient) -> None:
     assert get_response.status_code == 200
     fetched = get_response.json()
     assert fetched["session_id"] == created["session_id"]
-    assert fetched["merchant"] == "amazon.in"
+    assert fetched["merchant"] == "demo.nopcommerce.com"
 
 
 def test_list_sessions_returns_created_items(client: TestClient) -> None:
-    first = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
-    second = client.post("/api/sessions", json={"merchant": "flipkart.com"}).json()
+    first = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
+    second = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
 
     list_response = client.get("/api/sessions")
     assert list_response.status_code == 200
@@ -82,15 +82,15 @@ def test_list_sessions_returns_created_items(client: TestClient) -> None:
     assert first["session_id"] in ids
     assert second["session_id"] in ids
 
-    filtered_response = client.get("/api/sessions", params={"merchant": "flipkart.com"})
+    filtered_response = client.get("/api/sessions", params={"merchant": "demo.nopcommerce.com"})
     assert filtered_response.status_code == 200
     filtered = filtered_response.json()
     assert len(filtered) >= 1
-    assert all(item["merchant"] == "flipkart.com" for item in filtered)
+    assert all(item["merchant"] == "demo.nopcommerce.com" for item in filtered)
 
 
 def test_append_and_list_agent_logs(client: TestClient) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     append_response = client.post(

@@ -105,7 +105,7 @@ Port `3000` is intentionally unused.
 9. Confirm the backend processes the command over the live websocket as `user_text`.
 10. Confirm spoken backend replies are read aloud through browser-native TTS.
 11. Confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text.
-12. If needed, use `Connect Amazon.in` and confirm the shell reflects its current status.
+12. Confirm the first live navigation lands on `demo.nopcommerce.com`.
 13. Exercise clarification, checkpoint, or final-confirmation states if the flow reaches them.
 14. After an order snapshot is available, verify latest-order loading and bounded cancellation behavior.
 15. Confirm session history, cart context, and post-purchase summary surfaces remain reachable.

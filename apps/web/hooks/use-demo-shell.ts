@@ -6,7 +6,6 @@ import {
   buildLiveWebSocketUrl,
   createLiveSession,
   getCurrentUser,
-  getBigBasketConnectionStatus,
   loadLatestOrderSnapshot,
   login,
   persistAuthToken,
@@ -22,7 +21,6 @@ import {
 } from "@/services/api";
 import type {
   AgentStepResponse,
-  AmazonConnectionStatus,
   ClarificationRequest,
   LiveGatewayEvent,
   OrderCancellationResult,
@@ -212,11 +210,6 @@ export function useDemoShell() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [audioCaptureSupported, setAudioCaptureSupported] = useState(false);
   const [voiceSupportMessage, setVoiceSupportMessage] = useState<string | null>(null);
-  const [amazonConnected, setAmazonConnected] = useState(false);
-  const [amazonCookiePanelOpen, setAmazonCookiePanelOpen] = useState(false);
-  const [amazonCookieInput, setAmazonCookieInput] = useState("");
-  const [amazonAuthBusy, setAmazonAuthBusy] = useState(false);
-  const [amazonAuthNote, setAmazonAuthNote] = useState<string | null>(null);
   const [orderCancelBusy, setOrderCancelBusy] = useState(false);
 
   useEffect(() => {
@@ -256,10 +249,10 @@ export function useDemoShell() {
     const notes = observation.notes ?? "";
     const pageTitle = observation.page_title ?? "";
     if (hints.includes("access_denied") || pageTitle.toLowerCase() === "access denied") {
-      return "BigBasket blocked the runtime browser session.";
+      return "The demo store blocked the runtime browser session.";
     }
     if (observation.observed_url === "navigating" || hints.includes("navigating")) {
-      return "Navigating to BigBasket.";
+      return "Navigating to the demo store.";
     }
     if (hints.includes("location_blocked")) {
       return "Waiting for location selection.";
@@ -283,7 +276,7 @@ export function useDemoShell() {
       return "Sign-in required.";
     }
     if (notes.includes("blocked the runtime browser session")) {
-      return "BigBasket blocked the runtime browser session.";
+      return "The demo store blocked the runtime browser session.";
     }
     return browserActivityStatus;
   };
@@ -339,27 +332,6 @@ export function useDemoShell() {
   const refreshRuntimeState = async (id: string) => {
     await refreshRuntimeObservationState(id);
     await refreshRuntimeScreenshotState(id, true);
-  };
-
-  const refreshBigBasketConnectionStatus = async (
-    id: string,
-    silent = false
-  ): Promise<AmazonConnectionStatus | null> => {
-    try {
-      const status = await getBigBasketConnectionStatus(id);
-      setAmazonConnected(status.connected);
-      if (status.connected) {
-        setAmazonAuthNote("BigBasket Connected ✓");
-      } else if (status.notes) {
-        setAmazonAuthNote(status.notes);
-      }
-      return status;
-    } catch (err) {
-      if (!silent) {
-        setError(err instanceof Error ? err.message : "Failed to inspect BigBasket connection status.");
-      }
-      return null;
-    }
   };
 
   const refreshContext = async (id: string, silent = false) => {
@@ -556,11 +528,6 @@ export function useDemoShell() {
     setRuntimeObservation(null);
     setRuntimeScreenshot(null);
     setTranscript([]);
-    setAmazonConnected(false);
-    setAmazonCookiePanelOpen(false);
-    setAmazonCookieInput("");
-    setAmazonAuthBusy(false);
-    setAmazonAuthNote(null);
     setBrowserActivityStatus(voiceModeEnabledRef.current ? "Voice enabled. No active session." : "No active session.");
     contextInFlightRef.current = false;
     observationInFlightRef.current = false;
@@ -876,12 +843,6 @@ export function useDemoShell() {
       return true;
     }
 
-    if (normalized === "connect bigbasket" || normalized === "connect to bigbasket") {
-      appendRecognizedText();
-      await connectBigBasket();
-      return true;
-    }
-
     if (
       normalized === "cancel session" ||
       normalized === "end session" ||
@@ -933,7 +894,7 @@ export function useDemoShell() {
       }
 
       const live = await createLiveSession({
-        merchant: "bigbasket.com",
+        merchant: "demo.nopcommerce.com",
         locale: safeLocale(locale)
       });
 
@@ -944,11 +905,10 @@ export function useDemoShell() {
       await refreshContext(live.session_id);
       await refreshRuntimeObservationState(live.session_id, true);
       await refreshRuntimeScreenshotState(live.session_id, true);
-      await refreshBigBasketConnectionStatus(live.session_id, true);
       await refreshSessionHistory();
       startPolling(live.session_id);
       startScreenshotPolling(live.session_id);
-      setBrowserActivityStatus("Starting a live browser session on BigBasket.");
+      setBrowserActivityStatus("Starting a live browser session on the demo store.");
 
       const ws = new WebSocket(buildLiveWebSocketUrl(live.websocket_path));
       wsRef.current = ws;
@@ -1335,7 +1295,7 @@ export function useDemoShell() {
       return;
     }
     try {
-      setBrowserActivityStatus("Loading the latest order details from BigBasket.");
+      setBrowserActivityStatus("Loading the latest order details from the merchant site.");
       await loadLatestOrderSnapshot(sessionId);
       appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
       await refreshAfterMeaningfulTransition(sessionId);
@@ -1350,7 +1310,7 @@ export function useDemoShell() {
     }
     setOrderCancelBusy(true);
     setError(null);
-    setBrowserActivityStatus("Attempting to cancel the latest order from BigBasket.");
+    setBrowserActivityStatus("Attempting to cancel the latest order from the merchant site.");
     try {
       const result: OrderCancellationResult = await cancelLatestOrder(sessionId);
       appendTranscript(makeTranscript(result.cancelled ? "assistant" : "warning", result.spoken_summary));
@@ -1360,89 +1320,6 @@ export function useDemoShell() {
       setError(err instanceof Error ? err.message : "Failed to cancel the latest order.");
     } finally {
       setOrderCancelBusy(false);
-    }
-  };
-
-  const connectBigBasket = async () => {
-    let activeSessionId = sessionId;
-    if (!activeSessionId) {
-      activeSessionId = await startLiveSession();
-    }
-    if (!activeSessionId) {
-      setError("Failed to start a live session for BigBasket.");
-      return;
-    }
-    if (amazonConnected) {
-      setAmazonAuthNote("BigBasket Connected ✓");
-      return;
-    }
-    setError(null);
-    setAmazonCookiePanelOpen(true);
-    setAmazonAuthNote(
-      "Paste your BigBasket cookies JSON for the active Luminar session."
-    );
-    setBrowserActivityStatus("Waiting for pasted BigBasket cookies.");
-  };
-
-  const saveBigBasketCookies = async () => {
-    if (!sessionId) {
-      setError("Start a live session before saving BigBasket cookies.");
-      return;
-    }
-
-    const cookies = amazonCookieInput.trim();
-    if (!cookies) {
-      const message = "Paste exported BigBasket cookies JSON before saving.";
-      setAmazonAuthNote(message);
-      setError(message);
-      return;
-    }
-
-    setAmazonAuthBusy(true);
-    setError(null);
-    setAmazonAuthNote("Saving BigBasket cookies into the Luminar runtime...");
-    setBrowserActivityStatus("Loading pasted BigBasket cookies into the live browser session.");
-
-    try {
-      const authToken = getStoredAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/auth/bigbasket/cookies`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
-        },
-        body: JSON.stringify({
-          session_id: sessionId,
-          cookies
-        }),
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "BigBasket cookie save failed.");
-      }
-
-      const payload = (await response.json()) as { connected?: boolean };
-      if (payload.connected !== true) {
-        throw new Error("BigBasket cookie save did not confirm a connected runtime session.");
-      }
-
-      setAmazonConnected(true);
-      setAmazonAuthNote("BigBasket Connected ✓");
-      setAmazonCookieInput("");
-      setAmazonCookiePanelOpen(false);
-      appendTranscript(makeTranscript("system", "BigBasket Connected ✓"));
-      setBrowserActivityStatus("BigBasket cookies loaded into the runtime session.");
-      await refreshBigBasketConnectionStatus(sessionId, true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to save BigBasket cookies.";
-      setAmazonConnected(false);
-      setAmazonAuthNote(message);
-      setError(message);
-      setBrowserActivityStatus("BigBasket cookie load failed.");
-    } finally {
-      setAmazonAuthBusy(false);
     }
   };
 
@@ -1484,12 +1361,6 @@ export function useDemoShell() {
     speechSupported,
     audioCaptureSupported,
     voiceSupportMessage,
-    amazonConnected,
-    amazonCookiePanelOpen,
-    amazonCookieInput,
-    setAmazonCookieInput,
-    amazonAuthBusy,
-    amazonAuthNote,
     orderCancelBusy,
     finalConfirmationPending:
       context?.latest_final_purchase_confirmation?.required === true &&
@@ -1513,10 +1384,6 @@ export function useDemoShell() {
     updateCartLineQuantity,
     fetchLatestOrderSnapshot,
     cancelPlacedOrder,
-    connectBigBasket,
-    saveBigBasketCookies,
-    connectAmazonIn: connectBigBasket,
-    saveAmazonCookies: saveBigBasketCookies,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

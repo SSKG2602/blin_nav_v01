@@ -246,6 +246,8 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
         return ShoppingAction.UNKNOWN
 
     def _detect_merchant(self, normalized: str) -> str | None:
+        if "demo.nopcommerce.com" in normalized or "nopcommerce" in normalized:
+            return "demo.nopcommerce.com"
         if "amazon" in normalized or "अमेज़न" in normalized:
             return "amazon.in"
         if "flipkart" in normalized or "फ्लिपकार्ट" in normalized:
@@ -268,7 +270,7 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
             token
             for token in tokens
             if token not in _ACTION_STOPWORDS
-            and token not in {"amazon", "amazonin", "flipkart", "meesho"}
+            and token not in {"amazon", "amazonin", "flipkart", "meesho", "nopcommerce", "demo", "demostore"}
             and token not in _KNOWN_COLORS
             and token not in _KNOWN_VARIANTS
             and (brand is None or token != brand)
@@ -362,7 +364,7 @@ class GeminiIntentSummaryService(BlindNavLLMClient):
             "Schema:\n"
             "{\n"
             '  "action": "SEARCH_PRODUCT|REFINE_RESULTS|SELECT_PRODUCT|ADD_TO_CART|PROCEED_CHECKOUT|CANCEL|UNKNOWN",\n'
-            '  "merchant": "amazon.in|flipkart.com|meesho.com|null",\n'
+            '  "merchant": "demo.nopcommerce.com|null",\n'
             '  "confidence": 0.0,\n'
             '  "requires_clarification": false,\n'
             '  "spoken_confirmation": "short safe confirmation",\n'

@@ -98,12 +98,12 @@ def test_authenticated_session_history_is_scoped_to_user() -> None:
 
         client.post(
             "/api/sessions",
-            json={"merchant": "amazon.in"},
+            json={"merchant": "demo.nopcommerce.com"},
             headers={"Authorization": f"Bearer {first_user['token']}"},
         )
         client.post(
             "/api/sessions",
-            json={"merchant": "flipkart.com"},
+            json={"merchant": "demo.nopcommerce.com"},
             headers={"Authorization": f"Bearer {second_user['token']}"},
         )
 
@@ -115,10 +115,3 @@ def test_authenticated_session_history_is_scoped_to_user() -> None:
         items = first_history.json()
         assert len(items) == 1
         assert items[0]["owner_display_name"] == "First User"
-
-
-def test_amazon_login_redirect_route() -> None:
-    with _client() as client:
-        response = client.get("/api/auth/amazon/login", follow_redirects=False)
-        assert response.status_code == 307
-        assert response.headers["location"] == "https://www.amazon.in/ap/signin"

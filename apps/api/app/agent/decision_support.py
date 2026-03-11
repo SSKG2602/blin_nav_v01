@@ -15,6 +15,7 @@ from app.schemas.review_analysis import ReviewAssessment, ReviewConflictLevel
 from app.schemas.trust_verification import TrustAssessment, TrustStatus
 
 _MERCHANT_ALLOWLIST: dict[str, set[str]] = {
+    "demo.nopcommerce.com": {"demo.nopcommerce.com"},
     "amazon.in": {"amazon.in", "www.amazon.in", "m.amazon.in"},
     "flipkart.com": {"flipkart.com", "www.flipkart.com"},
     "meesho.com": {"meesho.com", "www.meesho.com"},
@@ -27,6 +28,8 @@ _LOOKALIKE_PATTERNS = (
     "flipkarrt",
     "fl1pkart",
     "meesh0",
+    "nopcornmerce",
+    "nopcornrnerce",
     "rnazon",
 )
 
@@ -121,6 +124,8 @@ def _lookalike_risk(domain: str | None) -> bool | None:
     if "flipkart" in lower and "flipkart.com" not in lower:
         return True
     if "meesho" in lower and "meesho.com" not in lower:
+        return True
+    if "nopcommerce" in lower and "demo.nopcommerce.com" not in lower:
         return True
     return False
 

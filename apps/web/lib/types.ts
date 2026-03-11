@@ -41,13 +41,6 @@ export interface AuthSessionResponse {
   profile: UserProfile;
 }
 
-export interface AmazonConnectionStatus {
-  connected: boolean;
-  cookie_count: number;
-  current_url?: string | null;
-  notes?: string | null;
-}
-
 export interface AgentCommand {
   type: string;
   payload: Record<string, unknown>;

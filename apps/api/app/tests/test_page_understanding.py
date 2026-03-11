@@ -10,12 +10,12 @@ def test_classify_search_results_page() -> None:
             {
                 "title": "Pedigree Adult Dry Dog Food, Chicken and Vegetables, 3kg",
                 "price_text": "₹799",
-                "url": "https://www.amazon.in/dp/EXAMPLE1",
+                "url": "https://demo.nopcommerce.com/pedigree-dry-dog-food",
             },
             {
                 "title": "Drools Focus Adult Dog Food, 3kg",
                 "price_text": "₹699",
-                "url": "https://www.amazon.in/dp/EXAMPLE2",
+                "url": "https://demo.nopcommerce.com/drools-focus-adult-dog-food",
             },
         ],
     }
@@ -32,7 +32,7 @@ def test_classify_search_results_page() -> None:
 def test_classify_product_detail_page() -> None:
     raw_data = {
         "is_product_detail": True,
-        "url": "https://www.amazon.in/dp/B0TESTSKU",
+        "url": "https://demo.nopcommerce.com/build-your-own-computer",
         "product_title": "Pedigree Adult Dry Dog Food 3kg",
         "price_text": "₹799",
         "availability_text": "In stock",
@@ -48,7 +48,7 @@ def test_classify_product_detail_page() -> None:
 
 def test_classify_cart_page() -> None:
     raw_data = {
-        "url": "https://www.amazon.in/gp/cart/view.html",
+        "url": "https://demo.nopcommerce.com/cart",
         "cart_item_count": "2 items",
     }
 
@@ -77,11 +77,11 @@ def test_classify_blocked_page_keeps_unknown_with_low_confidence() -> None:
         "page_type": "access_denied",
         "blocked_page": True,
         "page_title": "Access Denied",
-        "notes": "BigBasket blocked the runtime browser session.",
+        "notes": "The demo store blocked the runtime browser session.",
     }
 
     result = classify_page_understanding(raw_data)
 
     assert result.page_type == PageType.UNKNOWN
-    assert result.notes == "BigBasket blocked the runtime browser session."
+    assert result.notes == "The demo store blocked the runtime browser session."
     assert result.confidence <= 0.10

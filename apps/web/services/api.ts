@@ -1,5 +1,4 @@
 import type {
-  AmazonConnectionStatus,
   AuthSessionResponse,
   LiveSessionCreateResponse,
   OrderCancellationResult,
@@ -81,22 +80,6 @@ export async function login(params: {
 
 export async function getCurrentUser(): Promise<AuthSessionResponse> {
   return requestJson<AuthSessionResponse>("/api/auth/me");
-}
-
-export function buildAmazonLoginUrl(sessionId?: string | null): string {
-  const url = new URL(`${API_BASE}/api/auth/amazon/login`);
-  if (sessionId) {
-    url.searchParams.set("session_id", sessionId);
-  }
-  return url.toString();
-}
-
-export async function getBigBasketConnectionStatus(sessionId: string): Promise<AmazonConnectionStatus> {
-  return requestJson<AmazonConnectionStatus>(`/api/auth/bigbasket/status/${sessionId}`);
-}
-
-export async function getAmazonConnectionStatus(sessionId: string): Promise<AmazonConnectionStatus> {
-  return requestJson<AmazonConnectionStatus>(`/api/auth/amazon/status/${sessionId}`);
 }
 
 export async function createLiveSession(params: {

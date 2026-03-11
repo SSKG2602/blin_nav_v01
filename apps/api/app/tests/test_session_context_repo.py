@@ -83,7 +83,7 @@ def test_session_context_create_read_update(db_session) -> None:
         latest_intent=InterpretedUserIntent(
             raw_utterance="find dog food",
             action=ShoppingAction.SEARCH_PRODUCT,
-            merchant="amazon.in",
+            merchant="demo.nopcommerce.com",
             confidence=0.7,
             requires_clarification=False,
             spoken_confirmation="Searching now.",
@@ -141,8 +141,8 @@ def test_session_context_create_read_update(db_session) -> None:
         ),
         latest_trust_assessment=TrustAssessment(
             status=TrustStatus.TRUSTED,
-            merchant="amazon.in",
-            domain="www.amazon.in",
+            merchant="demo.nopcommerce.com",
+            domain="demo.nopcommerce.com",
             https_present=True,
             lookalike_risk=False,
             known_merchant_match=True,

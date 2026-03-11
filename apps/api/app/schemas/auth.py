@@ -30,9 +30,3 @@ class AuthSessionResponse(BaseModel):
     token: str
     profile: UserProfile
 
-
-class AmazonConnectionStatus(BaseModel):
-    connected: bool = False
-    cookie_count: int = 0
-    current_url: str | None = None
-    notes: str | None = None

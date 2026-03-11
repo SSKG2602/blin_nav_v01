@@ -89,14 +89,14 @@ Check:
 - the session is active and the shell is polling runtime screenshots
 - the current page is still available to the browser-runtime session
 
-## BigBasket connect status is not appearing
+## Demo store session is not opening correctly
 
 Check:
 
-- a live session exists before clicking `Connect BigBasket`
-- the pasted cookie JSON is valid for a logged-in BigBasket browser session
-- the shell can reach `/api/auth/bigbasket/status/{session_id}`
-- the runtime session still has the relevant merchant cookies
+- a live session was started from the shell
+- the runtime can reach `demo.nopcommerce.com`
+- the `Browser Activity` panel is updating after session start
+- the runtime observation route is returning a current URL instead of repeated navigation placeholders
 
 ## Order cancellation is unavailable
 
@@ -104,7 +104,7 @@ Check:
 
 - a latest-order snapshot exists for the session
 - the merchant page still exposes the latest order card
-- the order is still inside BigBasket’s cancellable window
+- the order is still inside the merchant’s cancellable window
 
 If the shell says the order has already shipped, the cancellation path is no longer available by design.
 

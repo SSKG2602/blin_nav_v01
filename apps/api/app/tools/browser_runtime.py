@@ -120,26 +120,3 @@ class BrowserRuntimeClient(Protocol):
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         ...
-
-    def get_connection_status(
-        self,
-        *,
-        session_id: UUID,
-        merchant_domain: str,
-    ) -> dict[str, Any]:
-        ...
-
-    def set_connection_cookies(
-        self,
-        *,
-        session_id: UUID,
-        cookies: str,
-        merchant_domain: str,
-    ) -> None:
-        ...
-
-    def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
-        ...
-
-    def set_amazon_cookies(self, *, session_id: UUID, cookies: str) -> None:
-        ...

@@ -22,7 +22,7 @@ class LiveEventType(str, Enum):
 
 
 class LiveSessionCreateRequest(BaseModel):
-    merchant: Merchant = Merchant.AMAZON
+    merchant: Merchant = Merchant.DEMO_STORE
     locale: str | None = None
 
 

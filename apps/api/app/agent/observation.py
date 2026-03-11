@@ -28,7 +28,7 @@ def build_page_understanding_from_browser_observation(
     if blocked_hint or blocked_title:
         normalized["blocked_page"] = True
         normalized["page_type"] = "unknown"
-        normalized["notes"] = normalized.get("notes") or "BigBasket blocked the runtime browser session."
+        normalized["notes"] = normalized.get("notes") or "The demo store blocked the runtime browser session."
 
     if "page_type" not in normalized and isinstance(hints, list):
         for hint in hints:

@@ -61,7 +61,7 @@ def client(testing_session_local) -> TestClient:
 
 
 def _create_session_and_seed_checkpoint(client: TestClient, testing_session_local) -> str:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     with testing_session_local() as db:
         update_session_context(
@@ -141,7 +141,7 @@ def test_checkpoint_routes_missing_session_return_404(client: TestClient) -> Non
 
 
 def test_checkpoint_routes_return_404_when_no_checkpoint(client: TestClient) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     get_response = client.get(f"/api/sessions/{session_id}/checkpoint")
@@ -157,7 +157,7 @@ def test_checkpoint_routes_return_404_when_no_checkpoint(client: TestClient) -> 
 
 
 def test_final_confirmation_routes_round_trip(client: TestClient, testing_session_local) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     with testing_session_local() as db:
         update_session_context(

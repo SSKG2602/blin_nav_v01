@@ -38,7 +38,7 @@ The current branch implements the bounded non-future BlindNav scope, including:
 - review risk analysis with spoken takeaways
 - interruption handling, low-confidence halt, and desynchronization recovery
 - cart and checkout verification with explicit checkpoint and final-confirmation gating
-- BigBasket connect flow surfaced from the shell
+- bounded demo-store session flow on `demo.nopcommerce.com`
 - browser activity monitor with screenshot thumbnail, URL, and status text
 - latest-order support, bounded order cancellation, and post-purchase summary visibility
 - session history, lightweight auth, structured logs, closure artifacts, and self-diagnosis
@@ -47,8 +47,9 @@ The current branch implements the bounded non-future BlindNav scope, including:
 
 BlindNav is intentionally scoped for a bounded hackathon demo:
 
-- primary merchant target: `bigbasket.com`
-- bounded backup contingencies: `flipkart.com`, `meesho.com`
+- active demo merchant: `demo.nopcommerce.com`
+- active Phase 1 demo surfaces: search, product detail, cart, runtime observation, and voice-driven control
+- checkout and order-history support remain bounded and should be presented conservatively unless validated in code/tests
 - operator shell: live demo and debugging surface, not a consumer storefront
 - no claim of unconstrained multi-merchant autonomy
 - no claim that future-scope features are implemented unless the runnable repo supports them
@@ -103,7 +104,7 @@ The current verification surface includes:
 - backend pytest suite in `apps/api/app/tests`
 - browser-runtime pytest suite in `browser-runtime/tests`
 - frontend typecheck and production build checks in `apps/web`
-- manual live smoke checks for voice wake, spoken replies, browser activity, BigBasket connect, checkpoints, and post-purchase controls
+- manual live smoke checks for voice wake, spoken replies, browser activity, demo-store search/product/cart flow, checkpoints, and post-purchase controls
 
 ## Documentation map
 

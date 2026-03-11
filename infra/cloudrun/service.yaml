@@ -25,4 +25,4 @@ spec:
             - name: PRODUCT_WAKE_NAME
               value: Luminar
             - name: MERCHANT_PRIMARY
-              value: amazon.in
+              value: demo.nopcommerce.com

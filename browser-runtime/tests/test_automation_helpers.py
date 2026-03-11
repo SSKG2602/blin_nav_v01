@@ -92,8 +92,8 @@ class FakePage:
     def __init__(
         self,
         *,
-        url: str = "https://www.amazon.in",
-        title: str = "Amazon",
+        url: str = "https://demo.nopcommerce.com",
+        title: str = "Demo Store",
         selectors: dict[str, list[dict[str, Any]]] | None = None,
         fail_locator: bool = False,
         fail_goto: bool = False,
@@ -122,12 +122,12 @@ def test_choose_best_product_candidate_prefers_non_junk_dp_link() -> None:
     candidates = [
         {
             "title": "Sponsored listing",
-            "url": "https://www.amazon.in/slredirect/picassoRedirect.html",
+            "url": "https://demo.nopcommerce.com/help/sponsored",
             "price_text": "₹499",
         },
         {
             "title": "Pedigree Adult Dry Dog Food 3kg",
-            "url": "https://www.amazon.in/dp/B012345678",
+            "url": "https://demo.nopcommerce.com/pd/pedigree-adult-dry-dog-food-3kg",
             "price_text": "₹899",
         },
     ]
@@ -135,20 +135,20 @@ def test_choose_best_product_candidate_prefers_non_junk_dp_link() -> None:
     chosen = choose_best_product_candidate(candidates)
 
     assert chosen is not None
-    assert chosen["url"] == "https://www.amazon.in/dp/B012345678"
+    assert chosen["url"] == "https://demo.nopcommerce.com/pd/pedigree-adult-dry-dog-food-3kg"
 
 
 def test_extract_product_detail_evidence_handles_complete_and_partial_fields() -> None:
     page = FakePage(
-        url="https://www.amazon.in/dp/B012345678",
+        url="https://demo.nopcommerce.com/build-your-own-computer",
         title="Pedigree Product",
         selectors={
-            "#productTitle": [{"text": "Pedigree Adult Dry Dog Food"}],
-            "span.a-price span.a-offscreen": [{"text": "₹899.00"}],
-            "#availability span": [{"text": "In stock"}],
-            "#acrPopover span.a-icon-alt": [{"text": "4.3 out of 5 stars"}],
-            "#acrCustomerReviewText": [{"text": "12,345 ratings"}],
-            "#bylineInfo": [{"text": "Brand: Pedigree"}],
+            "h1.product-name": [{"text": "Pedigree Adult Dry Dog Food"}],
+            "span[class*='Pricing']": [{"text": "₹899.00"}],
+            "button[class*='AddToCart']": [{"text": "Add to cart"}],
+            "span[class*='Rating']": [{"text": "4.3 out of 5 stars"}],
+            "span[class*='ReviewCount']": [{"text": "12,345 ratings"}],
+            "span[class*='Brand']": [{"text": "Brand: Pedigree"}],
         },
     )
 
@@ -159,9 +159,9 @@ def test_extract_product_detail_evidence_handles_complete_and_partial_fields() -
     assert evidence["notes"] is None
 
     partial_page = FakePage(
-        url="https://www.amazon.in/dp/B0PARTIAL",
+        url="https://demo.nopcommerce.com/build-your-own-computer",
         title="Unknown Product",
-        selectors={"#productTitle": [{"text": "Unknown Product"}]},
+        selectors={"h1.product-name": [{"text": "Unknown Product"}]},
     )
     partial_evidence = extract_product_detail_evidence(partial_page)
     assert partial_evidence["title"] == "Unknown Product"
@@ -171,10 +171,10 @@ def test_extract_product_detail_evidence_handles_complete_and_partial_fields() -
 
 def test_extract_cart_evidence_returns_count_and_checkout_ready() -> None:
     page = FakePage(
-        url="https://www.amazon.in/gp/cart/view.html",
+        url="https://demo.nopcommerce.com/cart",
         selectors={
-            "#sc-subtotal-label-buybox": [{"text": "Subtotal (2 items):"}],
-            'input[name="proceedToRetailCheckout"]': [{"visible": True}],
+            "span[class*='ItemCount']": [{"text": "2"}],
+            "a[href*='checkout']": [{"visible": True}],
         },
     )
 
@@ -192,14 +192,14 @@ def test_dismiss_common_interruptions_fails_safely() -> None:
 
 def test_collect_semantic_page_signals_detects_checkpoint_and_structure_anchors() -> None:
     page = FakePage(
-        url="https://www.amazon.in/gp/buy/spc/handlers/display.html",
+        url="https://demo.nopcommerce.com/checkout",
         selectors={
-            "input#captchacharacters": [{"visible": True}],
+            "input[name*='captcha']": [{"visible": True}],
             "input[name*='otp']": [{"visible": True}],
             "input[name*='cvv']": [{"visible": True}],
-            "#productTitle": [{"visible": True}],
-            "#sc-subtotal-label-buybox": [{"visible": True}],
-            "#submitOrderButtonId": [{"visible": True}],
+            "h1.product-name": [{"visible": True}],
+            "div[class*='BasketItem']": [{"visible": True}],
+            "button[class*='Checkout']": [{"visible": True}],
         },
     )
 
@@ -215,13 +215,13 @@ def test_collect_semantic_page_signals_detects_checkpoint_and_structure_anchors(
 
 def test_detect_access_denied_uses_title_and_body_markers() -> None:
     page = FakePage(
-        url="https://www.bigbasket.com/",
+        url="https://demo.nopcommerce.com/",
         title="Access Denied",
         selectors={
             "body": [
                 {
                     "text": (
-                        "You don't have permission to access \"http://www.bigbasket.com/\" "
+                        "You don't have permission to access \"http://demo.nopcommerce.com/\" "
                         "on this server. Reference #18.6518d017 https://errors.edgesuite.net/"
                     )
                 }
@@ -233,11 +233,11 @@ def test_detect_access_denied_uses_title_and_body_markers() -> None:
     assert classify_page_state(page) == "unknown"
 
 
-def test_classify_page_state_keeps_normal_bigbasket_home() -> None:
+def test_classify_page_state_keeps_normal_demo_store_home() -> None:
     page = FakePage(
-        url="https://www.bigbasket.com/",
-        title="Bigbasket | Online Grocery Shopping and Online Supermarket",
-        selectors={"body": [{"text": "Fresh fruits, vegetables, and groceries"}]},
+        url="https://demo.nopcommerce.com/",
+        title="nopCommerce demo store",
+        selectors={"body": [{"text": "Welcome to the nopCommerce demo store"}]},
     )
 
     assert detect_access_denied(page) is False
@@ -247,7 +247,7 @@ def test_classify_page_state_keeps_normal_bigbasket_home() -> None:
 def test_duplicate_search_guard_skips_immediate_repeat() -> None:
     action_guard.clear()
     session_id = uuid4()
-    first_url = "https://www.amazon.in/s?k=dog+food"
+    first_url = "https://demo.nopcommerce.com/search?q=dog+food"
 
     assert action_guard.should_skip_duplicate_search(
         session_id,
@@ -269,7 +269,7 @@ def test_duplicate_search_guard_skips_immediate_repeat() -> None:
 
 
 def test_recovery_helper_returns_stable_shape() -> None:
-    page = FakePage(url="https://www.amazon.in/somewhere")
+    page = FakePage(url="https://demo.nopcommerce.com/somewhere")
     recovery = recover_to_stable_page(page, preferred="cart")
     assert set(recovery.keys()) == {"target", "success", "landed_url", "notes"}
     assert recovery["target"] == "cart"
@@ -286,9 +286,9 @@ def test_select_variant_option_matches_hint_and_records_guard() -> None:
     action_guard.clear()
     session_id = uuid4()
     page = FakePage(
-        url="https://www.amazon.in/dp/B012345678",
+        url="https://demo.nopcommerce.com/build-your-own-computer",
         selectors={
-            "#twister .a-button-text": [
+            "button[class*='Variant']": [
                 {"text": "1kg", "visible": True},
                 {"text": "3kg", "visible": True},
             ],
@@ -317,15 +317,16 @@ def test_add_to_cart_duplicate_guard_skips_repeat() -> None:
     action_guard.clear()
     session_id = uuid4()
     page = FakePage(
-        url="https://www.amazon.in/dp/B012345678",
+        url="https://demo.nopcommerce.com/build-your-own-computer",
         selectors={
-            "#add-to-cart-button": [{"visible": True}],
+            "button[class*='AddToCart']": [{"visible": True, "text": "Add to cart"}],
+            "div[class*='QuantityControl']": [{"visible": True}],
         },
     )
 
     added, notes = add_current_product_to_cart(page, session_id=session_id)
     assert added is True
-    assert any("add_to_cart_clicked" in note for note in notes)
+    assert any("add_to_cart_verified" in note for note in notes)
 
     added_again, notes_again = add_current_product_to_cart(page, session_id=session_id)
     assert added_again is True
@@ -335,7 +336,7 @@ def test_add_to_cart_duplicate_guard_skips_repeat() -> None:
 def test_duplicate_checkout_guard_skips_repeat_attempts() -> None:
     action_guard.clear()
     session_id = uuid4()
-    current_url = "https://www.amazon.in/gp/cart/view.html"
+    current_url = "https://demo.nopcommerce.com/cart"
 
     assert (
         action_guard.should_skip_duplicate_checkout_attempt(

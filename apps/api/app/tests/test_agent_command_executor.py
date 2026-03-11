@@ -275,7 +275,7 @@ def test_execute_many_preserves_order() -> None:
     commands = [
         AgentCommand(
             type=AgentCommandType.NAVIGATE_TO_SEARCH_RESULTS,
-            payload={"query": "dog food", "merchant": "amazon.in"},
+            payload={"query": "dog food", "merchant": "demo.nopcommerce.com"},
         ),
         AgentCommand(type=AgentCommandType.REVIEW_CART, payload={}),
         AgentCommand(type=AgentCommandType.PERFORM_CHECKOUT, payload={}),

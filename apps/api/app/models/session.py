@@ -16,7 +16,7 @@ class SessionORM(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
-    merchant = Column(String(64), nullable=False, default=Merchant.AMAZON.value)
+    merchant = Column(String(64), nullable=False, default=Merchant.DEMO_STORE.value)
     status = Column(String(32), nullable=False, default=SessionStatus.ACTIVE.value)
     locale = Column(String(16), nullable=True)
     screen_reader = Column(String(64), nullable=True)

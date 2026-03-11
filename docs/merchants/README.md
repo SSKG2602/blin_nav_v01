@@ -2,8 +2,8 @@
 
 ## Active merchant scope
 
-- primary supported demo target: `amazon.in`
-- bounded backup contingencies: `flipkart.com`, `meesho.com`
+- primary supported demo target: `demo.nopcommerce.com`
+- BlindNav currently presents a single rehearsed public demo merchant rather than a broad merchant roster
 
 ## Implementation truth
 

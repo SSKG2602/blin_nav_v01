@@ -15,7 +15,7 @@ from app.schemas import (
 def test_session_create_defaults() -> None:
     payload = SessionCreate()
 
-    assert payload.merchant == Merchant.AMAZON
+    assert payload.merchant == Merchant.DEMO_STORE
     assert payload.locale is None
     assert payload.screen_reader is None
     assert payload.client_version is None
@@ -23,7 +23,7 @@ def test_session_create_defaults() -> None:
 
 
 def test_session_summary_and_detail_contracts() -> None:
-    summary = SessionSummary(merchant=Merchant.AMAZON, status=SessionStatus.ACTIVE)
+    summary = SessionSummary(merchant=Merchant.DEMO_STORE, status=SessionStatus.ACTIVE)
     detail = SessionDetail(
         merchant=Merchant.FLIPKART,
         status=SessionStatus.ENDED,

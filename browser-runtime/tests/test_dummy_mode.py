@@ -31,7 +31,7 @@ def test_navigate_to_search_results_dummy_mode() -> None:
     session_id = uuid4()
     resp = client.post(
         f"/sessions/{session_id}/actions/navigate_to_search_results",
-        json={"query": "dog food", "merchant": "amazon.in"},
+        json={"query": "dog food", "merchant": "demo.nopcommerce.com"},
     )
     assert resp.status_code == 204
 

@@ -64,7 +64,7 @@ The Next.js shell in `apps/web` exists for live operation and demo visibility:
 - start sessions and connect to the live websocket
 - request microphone permission, capture wake phrase and spoken commands, and play browser-native spoken replies
 - display transcript, agent speech, browser activity screenshot, URL, runtime mirror, and event stream
-- surface auth, Amazon connect status, history, checkpoints, final confirmation, cart context, latest-order support, and bounded cancellation
+- surface auth, session history, checkpoints, final confirmation, cart context, latest-order support, and bounded cancellation
 - let the operator review or resolve state that is already owned by the backend
 
 The shell can request actions. It does not decide what state the agent is in. Screenshot polling and activity text are visibility layers over backend and runtime truth, not new sources of truth.
@@ -98,8 +98,6 @@ Safety behavior is first-class:
 - interruption is a backend control primitive, not only a frontend playback control
 - recovery stores reason and outcome instead of silently masking desync
 
-Amazon connect remains a shell/runtime integration surface. It does not move auth or merchant-state truth out of the backend/runtime loop.
-
 ## Persistence, logging, and closure
 
 The repo persists enough session state to make the agent inspectable:
@@ -129,19 +127,10 @@ Implementation truth comes from the live backend-runtime loop and persisted arti
 
 This repo documents and implements the bounded non-future BlindNav scope grounded by the sibling `Gemini_Hack` reference material. It does not claim completion for unconstrained internet shopping, multi-merchant orchestration at scale, advanced delivery intelligence, or production-grade autonomous checkout beyond the current bounded demo architecture.
 
-## Amazon Authentication — Production Roadmap
+## Demo Merchant Boundary
 
-Current demo uses a one-time cookie paste flow for BigBasket authentication.
-The user exports cookies from their logged-in browser using a cookie export 
-extension, pastes them into BlindNav once, and the browser-runtime loads them
-into the Playwright context via context.add_cookies().
-
-Production implementation will replace this with a persistent browser context flow:
-1. User triggers "Connect BigBasket" in the app
-2. Backend spins up a Playwright Chromium instance with Chrome DevTools Protocol (CDP)
-3. User authenticates on BigBasket normally (email, password, OTP)
-4. Playwright saves the full browser profile (user_data_dir) to a GCS bucket
-   at sessions/{user_id}/bigbasket-profile/
-5. Every future shopping session downloads the profile from GCS and loads it
-   into a persistent Playwright context — BigBasket treats it as the same returning browser
-6. Zero re-authentication required for the blind user after initial setup
+Phase 1 centers a single rehearsed public merchant at `demo.nopcommerce.com`.
+The repo currently treats search, product detail, cart, browser activity visibility,
+verification, checkpoints, and voice-first control as the active demo path.
+Checkout and order-history behavior remain bounded and should not be presented as
+fully production-ready nopCommerce automation without later validation.

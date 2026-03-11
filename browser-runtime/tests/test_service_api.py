@@ -20,7 +20,7 @@ def test_navigate_to_search_results_action() -> None:
     session_id = uuid4()
     response = client.post(
         f"/sessions/{session_id}/actions/navigate_to_search_results",
-        json={"query": "dog food", "merchant": "amazon.in"},
+        json={"query": "dog food", "merchant": "demo.nopcommerce.com"},
     )
     assert response.status_code == 204
 
@@ -111,39 +111,18 @@ def test_current_page_screenshot_observation_endpoint() -> None:
     assert payload["mime_type"] == "image/png"
 
 
-def test_amazon_auth_status_observation_endpoint() -> None:
-    session_id = uuid4()
-    response = client.get(f"/sessions/{session_id}/observation/amazon_auth_status")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connected"] is False
-    assert payload["cookie_count"] == 0
-
-
-def test_generic_auth_status_observation_endpoint_accepts_bigbasket_domain() -> None:
-    session_id = uuid4()
-    response = client.get(
-        f"/sessions/{session_id}/observation/auth_status",
-        params={"merchant_domain": "bigbasket.com"},
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connected"] is False
-    assert payload["cookie_count"] == 0
-
-
 def test_current_page_observation_endpoint_preserves_access_denied_hint(
     monkeypatch,
 ) -> None:
     session_id = uuid4()
     monkeypatch.setattr(
         "browser_runtime.routes.observation.browser_session_manager.get_current_url",
-        lambda _: "https://www.bigbasket.com/",
+        lambda _: "https://demo.nopcommerce.com/",
     )
     monkeypatch.setattr(
         "browser_runtime.routes.observation.browser_session_manager.get_current_page_observation",
         lambda _: {
-            "observed_url": "https://www.bigbasket.com/",
+            "observed_url": "https://demo.nopcommerce.com/",
             "page_title": "Access Denied",
             "detected_page_hints": ["access_denied", "unknown"],
             "product_candidates": [],
@@ -151,7 +130,7 @@ def test_current_page_observation_endpoint_preserves_access_denied_hint(
             "cart_items": [],
             "cart_item_count": None,
             "checkout_ready": None,
-            "notes": "BigBasket blocked the runtime browser session.",
+            "notes": "The demo store blocked the runtime browser session.",
         },
     )
 
@@ -160,4 +139,4 @@ def test_current_page_observation_endpoint_preserves_access_denied_hint(
     assert response.status_code == 200
     payload = response.json()
     assert payload["detected_page_hints"] == ["access_denied", "unknown"]
-    assert payload["notes"] == "BigBasket blocked the runtime browser session."
+    assert payload["notes"] == "The demo store blocked the runtime browser session."

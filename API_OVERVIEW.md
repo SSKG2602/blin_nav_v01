@@ -13,10 +13,8 @@ BlindNav exposes a compact backend API centered on auth, session lifecycle, dete
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
-- `GET /api/auth/amazon/login`
-- `GET /api/auth/amazon/status/{session_id}`
 
-These routes support lightweight demo auth, user-scoped history, and the shell-visible Amazon.in connect flow.
+These routes support lightweight demo auth and user-scoped session history.
 
 ## Sessions
 
@@ -51,6 +49,8 @@ This remains the deterministic state-machine step surface used by the backend or
 - `POST /api/sessions/{session_id}/orders/cancel`
 
 These routes support the operator shell’s runtime mirror, browser activity panel, cart management, latest-order loading, and bounded cancellation flow.
+
+The active public demo merchant is `demo.nopcommerce.com`. The public shell no longer depends on a merchant cookie-connect route.
 
 ## Live session API
 

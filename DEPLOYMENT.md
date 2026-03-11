@@ -113,7 +113,7 @@ Deploy the frontend as a separate Cloud Run service from `infra/docker/frontend.
 
 - do not weaken checkpoints, final confirmation, or low-confidence behavior to simplify deployment
 - keep browser-runtime access scoped to the backend or trusted internal callers
-- keep merchant authentication and live order context within controlled environments
+- keep live order context and browser state within controlled environments
 - verify screenshot, observation, and websocket flows after deploy instead of treating container startup as proof
 - keep frontend and backend origins aligned so websocket and auth flows work correctly
 
@@ -128,7 +128,7 @@ After all three services are deployed, verify:
 - frontend shell can sign in and create a live session
 - websocket connection succeeds from the deployed frontend
 - wake flow, spoken reply playback, and browser activity panel behave correctly
-- BigBasket connect status, latest-order loading, and bounded order cancellation remain reachable
+- demo-store search/product/cart flow, latest-order loading, and bounded order cancellation remain reachable where implemented
 - checkpoint and final-confirmation paths still pause and resume correctly
 
 ## Containerized local preflight
@@ -141,19 +141,9 @@ docker compose up --build
 
 Use [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md) for the checks that should pass before shipping.
 
-## Amazon Authentication — Production Roadmap
+## Demo Merchant Note
 
-Current demo uses a one-time cookie paste flow for BigBasket authentication.
-The user exports cookies from their logged-in browser using a cookie export 
-extension, pastes them into BlindNav once, and the browser-runtime loads them
-into the Playwright context via context.add_cookies().
-
-Production implementation will replace this with a persistent browser context flow:
-1. User triggers "Connect BigBasket" in the app
-2. Backend spins up a Playwright Chromium instance with Chrome DevTools Protocol (CDP)
-3. User authenticates on BigBasket normally (email, password, OTP)
-4. Playwright saves the full browser profile (user_data_dir) to a GCS bucket
-   at sessions/{user_id}/bigbasket-profile/
-5. Every future shopping session downloads the profile from GCS and loads it
-   into a persistent Playwright context — BigBasket treats it as the same returning browser
-6. Zero re-authentication required for the blind user after initial setup
+Phase 1 deploys BlindNav against a single rehearsed public merchant at `demo.nopcommerce.com`.
+The deployed story should present search, product detail, cart, and runtime visibility as
+the active bounded demo path. Do not claim robust end-to-end nopCommerce checkout reliability
+unless later phases validate that behavior.

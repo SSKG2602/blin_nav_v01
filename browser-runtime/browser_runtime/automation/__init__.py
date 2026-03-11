@@ -2,9 +2,6 @@ from browser_runtime.automation.helpers import (
     BB_CART_URL,
     BB_HOME_URL,
     BB_ORDERS_URL,
-    AMAZON_CART_URL,
-    AMAZON_HOME_URL,
-    AMAZON_ORDERS_URL,
     _is_score_tie,
     add_current_product_to_cart,
     action_guard,
@@ -34,9 +31,6 @@ from browser_runtime.automation.helpers import (
 )
 
 __all__ = [
-    "AMAZON_HOME_URL",
-    "AMAZON_CART_URL",
-    "AMAZON_ORDERS_URL",
     "BB_HOME_URL",
     "BB_CART_URL",
     "BB_ORDERS_URL",

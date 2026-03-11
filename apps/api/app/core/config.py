@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL_MULTIMODAL: str = "gemini-2.5-flash"
     GEMINI_MODEL_VISION: str = "gemini-2.5-flash"
     ALLOW_FINAL_PURCHASE_AUTOMATION: bool = False
-    MERCHANT_PRIMARY: str = "bigbasket.com"
+    MERCHANT_PRIMARY: str = "demo.nopcommerce.com"
     DATABASE_URL: str = "postgresql+psycopg://blindnav:blindnav@localhost:5432/blindnav"
     REDIS_URL: str = "redis://localhost:6379/0"
     LOG_LEVEL: str = "INFO"

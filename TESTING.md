@@ -1,12 +1,12 @@
 # Testing
 
-## Automated test surfaces
+## Active test surfaces
 
 BlindNav currently validates three main surfaces:
 
 - backend tests in `apps/api/app/tests`
 - browser-runtime tests in `browser-runtime/tests`
-- frontend static verification in `apps/web`
+- frontend static checks in `apps/web`
 
 ## Standard commands
 
@@ -25,79 +25,104 @@ make test-backend
 make test-runtime
 ```
 
+## Bounded demo suite
+
+Use this command when you want the current demo-ready nopCommerce verification surface:
+
+```bash
+PYTHONPATH=apps/api:browser-runtime apps/api/.venv/bin/python -m pytest \
+  browser-runtime/tests/test_automation_helpers.py \
+  browser-runtime/tests/test_observation.py \
+  browser-runtime/tests/test_dummy_mode.py \
+  browser-runtime/tests/test_service_api.py \
+  apps/api/app/tests/test_browser_observation_integration.py \
+  apps/api/app/tests/test_agent_api.py \
+  apps/api/app/tests/test_agent_context_api.py \
+  apps/api/app/tests/test_demo_scenarios.py \
+  apps/api/app/tests/test_live_session_api.py \
+  apps/api/app/tests/test_control_state.py \
+  apps/api/app/tests/test_decision_support.py \
+  apps/api/app/tests/test_agent_engine.py \
+  apps/api/app/tests/test_agent_command_executor.py \
+  apps/api/app/tests/test_checkpoint_api.py \
+  apps/api/app/tests/test_session_control_routes.py \
+  -q
+```
+
+Interpretation:
+
+- passing means the bounded happy path, blocker path, recovery path, audit-log coverage, and spoken-summary coverage are green
+- skipped tests are deferred full-checkout or post-purchase surfaces outside the current demo scope
+- warnings currently reflect known startup/deprecation noise, not a bounded-demo failure
+
+## Frontend checks
+
 Frontend checks currently run:
 
 - `npm run typecheck`
 - `npm run build`
 
-## CI coverage in repo
+Known caveat:
 
-GitHub workflow files exist for:
-
-- backend CI: `.github/workflows/backend-ci.yml`
-- frontend CI: `.github/workflows/frontend-ci.yml`
-
-They provide baseline verification, but local execution is still expected before merging behavior changes.
+- `npm run build` or `next build` can fail if the workspace path contains `#`; move the repo to a clean path before treating that as an app-level frontend regression
 
 ## What backend tests cover
 
 The backend suite includes coverage for:
 
-- health endpoints
 - auth and session ownership
 - live session API and websocket event flow
-- agent-step execution and orchestration
+- agent-step execution and deterministic orchestration
 - page understanding and product verification
 - control-state, checkpoint, and final-confirmation behavior
-- order and post-purchase control routes
-- context, logs, and scenario paths
+- bounded happy-path, blocker-path, and recovery-path demo scenarios
+- session context, audit logs, and spoken micro-summary stability
 
 ## What browser-runtime tests cover
 
-The browser-runtime suite covers the runtime service and helper behavior, including:
+The browser-runtime suite covers:
 
-- nopCommerce page classification for home, listing/search, product, cart, and guest-checkout entry
-- search submission and listing candidate extraction
-- product detail extraction, configurable-option blocking, and bounded add-to-cart verification
-- cart extraction and checkout-entry recognition
-- observation extraction
-- screenshot capture surfaces
-- merchant interaction helpers
-- cart and order helper logic
-- bounded cancellation helpers
+- nopCommerce page classification for home, listing/search, product, cart, and checkout-entry recognition
+- search submission and candidate extraction
+- product detail extraction and blocker detection
+- bounded add-to-cart verification
+- cart extraction and checkout-entry stop notes
+- observation payload consistency for replayable fixtures
 
-## Manual smoke checks
+## Manual local smoke path
 
 After automated tests pass, run a manual local smoke pass through the operator shell:
 
-1. log in or sign up
+1. sign in
 2. click `Wake Luminar`
-3. confirm the browser microphone permission prompt appears
-4. confirm the shell enters wake-listening state
-5. say `Luminar`
-6. confirm wake detection appears in the transcript
-7. speak a shopping request and confirm it appears immediately in the transcript panel
-8. confirm the backend responds and browser-native TTS plays the spoken reply
-9. confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text
-10. verify clarification, checkpoint, or final-confirmation surfaces if triggered
-11. verify the live runtime lands on `demo.nopcommerce.com` without any merchant connect step
-12. verify search submits through the live nopCommerce search box and that search results are read back coherently
-13. verify supported simple products can reach cart review, and configurable products halt with an explicit option-required note
-14. verify the bounded flow can recognize the cart checkout button and stop honestly at guest-checkout entry instead of pretending to place an order
-15. verify session history, closure artifacts, and confirmation visibility
+3. confirm microphone permission in Chrome or Edge
+4. say `Luminar`
+5. speak `find one m8`
+6. confirm the transcript updates immediately
+7. confirm spoken replies are read back through browser-native TTS
+8. confirm the `Browser Activity` panel shows screenshot thumbnail, URL, and status
+9. confirm the runtime lands on `demo.nopcommerce.com`
+10. confirm search results are summarized coherently
+11. confirm the simple product is verified and added to cart
+12. confirm cart verification is spoken coherently
+13. confirm checkout entry is recognized
+14. confirm BlindNav stops before guest checkout
+15. confirm audit/log output reflects the page type, verification, cart evidence, and checkout stop reason
 
-## What must be preserved
+Optional blocker smoke:
 
-When validating behavior changes, confirm that the repo still preserves:
+1. search for `build your own computer`
+2. confirm BlindNav blocks before add-to-cart
+3. confirm the blocker reason is spoken and logged
+
+## What must remain true
+
+When validating changes, confirm that BlindNav still preserves:
 
 - deterministic state-machine control
 - browser-grounded execution and verification
+- clarification instead of blind continuation
 - explicit consent checkpoints
-- final verbal confirmation before purchase
 - low-confidence halt and recovery behavior
-- auditable session history and closure artifacts
-- operator-shell visibility for runtime activity and spoken interaction
-
-## Documentation alignment
-
-If a change alters operator flow, API surface, deployment expectations, voice behavior, or testing procedures, update the relevant docs in the same change set.
+- user-verifiable logs and bounded spoken summaries
+- the checkout-entry stop boundary

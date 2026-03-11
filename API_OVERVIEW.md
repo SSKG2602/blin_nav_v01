@@ -44,11 +44,8 @@ This remains the deterministic state-machine step surface used by the backend or
 - `GET /api/sessions/{session_id}/runtime/screenshot`
 - `POST /api/sessions/{session_id}/cart/remove`
 - `POST /api/sessions/{session_id}/cart/quantity`
-- `POST /api/sessions/{session_id}/orders/latest`
-- `GET /api/sessions/{session_id}/orders/latest`
-- `POST /api/sessions/{session_id}/orders/cancel`
 
-These routes support the operator shell’s runtime mirror, browser activity panel, cart management, latest-order loading, and bounded cancellation flow.
+These routes support the operator shell’s runtime mirror, browser activity panel, bounded cart management, and demo-safe inspection.
 
 The active public demo merchant is `demo.nopcommerce.com`. The public shell no longer depends on a merchant cookie-connect route.
 
@@ -67,6 +64,10 @@ The live websocket supports:
 - clarification responses
 - checkpoint resolution
 - final-confirmation resolution
+
+## Scope note
+
+The active demo stops at checkout-entry recognition and intentionally does not click `Checkout as Guest`. Routes or internal code outside that boundary should not be presented as public demo functionality.
 
 ## Contract ownership
 

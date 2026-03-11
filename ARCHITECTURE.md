@@ -7,7 +7,7 @@ BlindNav is a deterministic, browser-grounded shopping agent for blind users. Th
 - backend orchestration in `apps/api/app/agent`
 - API and live transport in `apps/api/app/api/routes`
 - browser-grounded action and observation in `browser-runtime` and `apps/api/app/tools`
-- persisted session, context, logs, cart, order, and closure artifacts in `apps/api/app/models`, `apps/api/app/repositories`, and `apps/api/app/schemas`
+- persisted session, context, logs, cart, and closure artifacts in `apps/api/app/models`, `apps/api/app/repositories`, and `apps/api/app/schemas`
 
 The frontend shell in `apps/web` is an operator surface over those systems. It does not own business logic.
 
@@ -23,7 +23,7 @@ BlindNav is not an unconstrained chat agent. The backend advances through explic
 - cart and checkout progression
 - sensitive checkpoints
 - final purchase confirmation
-- post-purchase summary, latest-order handling, and session closure
+- checkout-entry stop handling and session closure
 
 Transitions are evaluated in the backend, not improvised in the frontend.
 
@@ -51,9 +51,9 @@ Key implementation areas:
 The browser runtime is the execution and observation boundary. It is responsible for:
 
 - navigating merchant pages
-- interacting with search, product, cart, checkout, and order history surfaces
+- interacting with search, product, cart, and checkout-entry surfaces
 - capturing page observations and screenshots
-- reading grounded evidence used for verification, recovery, post-purchase support, and bounded order cancellation
+- reading grounded evidence used for verification, recovery, cart confirmation, and checkout-entry recognition
 
 It is not allowed to invent product state, trust state, cart state, or checkout state. Those must be derived from observed page evidence and persisted through the backend.
 
@@ -64,7 +64,7 @@ The Next.js shell in `apps/web` exists for live operation and demo visibility:
 - start sessions and connect to the live websocket
 - request microphone permission, capture wake phrase and spoken commands, and play browser-native spoken replies
 - display transcript, agent speech, browser activity screenshot, URL, runtime mirror, and event stream
-- surface auth, session history, checkpoints, final confirmation, cart context, latest-order support, and bounded cancellation
+- surface auth, session history, checkpoints, final confirmation, cart context, and runtime visibility
 - let the operator review or resolve state that is already owned by the backend
 
 The shell can request actions. It does not decide what state the agent is in. Screenshot polling and activity text are visibility layers over backend and runtime truth, not new sources of truth.
@@ -85,7 +85,7 @@ Gemini does not replace:
 - browser-grounded action execution
 - consent checkpoints
 - final confirmation
-- cart, checkout, or order state truth
+- cart or checkout state truth
 - trust verification ownership
 
 ## Checkpoints, confirmation, and recovery
@@ -106,7 +106,7 @@ The repo persists enough session state to make the agent inspectable:
 - auth-linked ownership for user-scoped history
 - structured agent logs
 - session context snapshots
-- cart context and latest-order support snapshots
+- cart context snapshots
 - final session closure artifact
 - deterministic self-diagnosis before close
 
@@ -132,5 +132,5 @@ This repo documents and implements the bounded non-future BlindNav scope grounde
 Phase 1 centers a single rehearsed public merchant at `demo.nopcommerce.com`.
 The repo currently treats search, product detail, cart, browser activity visibility,
 verification, checkpoints, and voice-first control as the active demo path.
-Checkout and order-history behavior remain bounded and should not be presented as
-fully production-ready nopCommerce automation without later validation.
+Checkout entry recognition remains bounded and should not be presented as
+full nopCommerce checkout automation without later validation.

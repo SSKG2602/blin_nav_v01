@@ -1,26 +1,34 @@
-# Demo Notes
+# Demo Overview
 
-BlindNav is demonstrated through a bounded operator shell flow, not through opaque autonomous shopping.
+BlindNav is demonstrated through a bounded operator-guided flow on `demo.nopcommerce.com`. The demo is designed to be repeatable, safety-preserving, and easy to judge without claiming unsupported checkout automation.
 
-## Demo path highlights
+## Active demo path
 
-- live session creation from the web shell
-- wake phrase plus spoken or typed shopping intent capture
-- browser-native spoken replies from backend `spoken_output`
-- deterministic backend progression through nopCommerce home, search, product verification, cart, and checkout-entry recognition
-- browser activity visibility through screenshot thumbnail, URL, and status updates
-- explicit clarification, checkpoint, and final-confirmation states
-- no merchant cookie-connect step in the public shell
-- bounded configurable-product blocking when required options are not selected
-- low-confidence halt and recovery visibility
+- home page landing
+- search submission
+- search result extraction and spoken summary
+- product verification
+- safe add-to-cart when supported
+- cart verification
+- checkout-entry recognition
+- intentional stop before guest checkout
 
-## Demo boundary
+## Supported scenario types
 
-- active demo merchant: `demo.nopcommerce.com`
-- active Phase 2 surfaces are home, search/listing, product detail, cart, and guest-checkout entry recognition
-- deeper guest checkout, payment, order placement, and order-history behavior remain deferred
-- configurable products that require option selection should halt safely instead of being forced through add-to-cart
-- the demo emphasizes trust, verification, and consent rather than broad merchant coverage
-- future-scope features that are not in the runnable repo should not be presented as complete during judging or onboarding
+- golden happy path: simple supported product reaches cart and then checkout entry recognition
+- blocker path: configurable or otherwise blocked product triggers clarification or safe halt before add-to-cart
+- recovery path: modal interruption or selector/layout drift triggers deterministic recovery or safe halt
 
-See [HACKATHON_SCOPE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/HACKATHON_SCOPE.md) for the current scope statement.
+## Hard boundaries
+
+- do not present BlindNav as full checkout automation
+- do not click `Checkout as Guest`
+- do not imply order placement or payment completion
+- do not claim multi-merchant autonomy beyond `demo.nopcommerce.com`
+
+## Use these docs during a demo
+
+- [docs/demo/OPERATOR_GUIDE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/docs/demo/OPERATOR_GUIDE.md) for the live script, setup checklist, and fallback instructions
+- [docs/demo/EVIDENCE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/docs/demo/EVIDENCE.md) for the current green scenarios, latest pass counts, and intentional skips
+- [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md) for local commands
+- [TROUBLESHOOTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TROUBLESHOOTING.md) for known issues and safe fallback behavior

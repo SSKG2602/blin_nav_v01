@@ -1,30 +1,23 @@
 # Hackathon Scope
 
-BlindNav is built for the Gemini Live Agent Challenge as a bounded, implementation-grounded accessibility shopping agent. This document summarizes the scope actually implemented in this repo, using the sibling `Gemini_Hack` material as the intended reference boundary.
+BlindNav is built for the Gemini Live Agent Challenge as a bounded, implementation-grounded accessibility shopping agent. This document summarizes the scope actually implemented in this repo.
 
 ## Implemented demo-visible scope
 
-The current repo implements the bounded non-future flow for:
+The current repo implements the bounded nopCommerce demo flow for:
 
-- wake-word and live voice interaction through the operator shell
-- multilingual interaction path
-- spoken shopping intent capture and wake-driven websocket `user_text`
+- wake-word and typed interaction through the operator shell
+- spoken shopping intent capture and websocket `user_text`
 - browser-native spoken replies in the shell
-- clarification for incomplete or ambiguous intent
+- clarification for incomplete or ambiguous requests
 - merchant trust verification
 - visual page understanding
-- browser-grounded navigation and result interpretation
-- candidate ranking and differentiation
-- product and variant verification
-- review risk assessment and spoken review takeaway
-- interruption and safe backend re-anchoring
-- cart and checkout verification
-- sensitive checkpoints for OTP, CAPTCHA, and payment-auth events
-- final verbal confirmation before purchase
+- browser-grounded search, result interpretation, and product verification
+- configurable-product and minimum-quantity blocker detection
+- cart verification
+- checkout-entry recognition with an intentional stop before guest checkout
 - browser activity visibility through screenshot, URL, and status polling
-- a bounded public demo-store flow on `demo.nopcommerce.com`
-- final user-verifiable session summary
-- basic post-purchase support, latest-order handling, and bounded order cancellation
+- final user-verifiable logs and spoken summaries
 
 ## Implemented system support
 
@@ -34,8 +27,7 @@ The repo also includes bounded system support for:
 - lightweight auth and user-scoped session history
 - desynchronization recovery
 - layout-change resilience and UI stabilization
-- multi-product cart context
-- post-purchase order tracking support for the latest order context
+- operator-visible audit logs and session context
 
 ## Deliberate boundaries
 
@@ -44,16 +36,16 @@ BlindNav here is:
 - deterministic, not unconstrained
 - browser-grounded, not blind-action automation
 - bounded to the current demo flow and single rehearsed public merchant path
-- honest about current implementation state
+- honest about the checkout-entry stop boundary
 
 BlindNav here is not claimed to be:
 
 - a generalized multi-merchant autonomous shopper
 - a production-grade checkout autopilot
-- a full returns automation system
-- a proactive delivery-alert platform
-- a long-term preference or reordering engine
+- a guest-checkout executor
+- a payment or order-placement automation system
+- a post-purchase or delivery-management demo
 
 ## Scope grounding note
 
-`Gemini_Hack` remains the intended-scope and workflow reference. This repo documents only the subset that is actually implemented and runnable here.
+`Gemini_Hack` remains the intended reference boundary. This repo documents only the subset that is actually implemented and demo-ready here.

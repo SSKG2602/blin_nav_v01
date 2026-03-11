@@ -8,11 +8,11 @@ BlindNav is deployed as a three-service Google Cloud Run stack:
 - `blindnav-browser-runtime`
 - `blindnav-web`
 
-Each service has its own container image and its own runtime concerns. The backend remains the orchestration source of truth, the browser-runtime remains the execution/observation boundary, and the frontend remains the operator shell.
+The backend remains the orchestration source of truth, the browser-runtime remains the execution and observation boundary, and the frontend remains the operator shell.
 
 ## Repo deployment assets
 
-This repo already ships the core deployment assets needed for that topology:
+This repo already ships the core deployment assets for that topology:
 
 - backend image: `infra/docker/backend.Dockerfile`
 - browser-runtime image: `infra/docker/playwright.Dockerfile`
@@ -21,32 +21,29 @@ This repo already ships the core deployment assets needed for that topology:
 - backend Cloud Run env sample: `infra/cloudrun/env.sample.yaml`
 - backend deploy helper: `infra/cloudrun/deploy.sh`
 
-The backend has first-class Cloud Run manifests in the repo today. The browser-runtime and frontend are documented as separate Cloud Run services built from the existing Dockerfiles and wired through environment configuration.
-
 ## Service responsibilities
 
 ### `blindnav-api`
 
-- FastAPI backend
 - deterministic orchestration and state transitions
 - auth, session history, checkpoints, final confirmation, logs, and closure artifacts
 - live websocket transport
-- Gemini 2.5 Flash-backed interpretation, summarization, and multimodal assistance
+- Gemini-backed interpretation, summarization, and multimodal assistance
 - calls into the browser-runtime through `BROWSER_RUNTIME_BASE_URL`
 
 ### `blindnav-browser-runtime`
 
 - Playwright browser service
-- merchant navigation, DOM interaction, screenshot capture, and observation extraction
-- cart, checkout, latest-order, and bounded cancellation actions
-- remains private to the backend-facing network surface where possible
+- nopCommerce navigation, DOM interaction, screenshot capture, and observation extraction
+- bounded search, product, cart, and checkout-entry actions
+- private backend-facing surface where possible
 
 ### `blindnav-web`
 
 - Next.js operator shell
 - live websocket session control
-- voice wake flow, browser-native speech capture, and browser-native spoken replies
-- browser activity panel, runtime visibility, checkpoint/final-confirmation UI, cart/order actions, and session history
+- wake flow, browser-native speech capture, and browser-native spoken replies
+- browser activity panel, runtime visibility, checkpoint/final-confirmation UI, and session history
 
 ## Environment wiring
 
@@ -69,8 +66,6 @@ The backend service must be configured with:
 - `GOOGLE_CLOUD_REGION`
 - `LOG_BUCKET_NAME`
 
-The docs target Gemini 2.5 Flash as the deployed model family for those Gemini model variables.
-
 ### Browser-runtime
 
 The browser-runtime service must:
@@ -92,8 +87,6 @@ The deployed frontend origin must match the backend `FRONTEND_ORIGIN` CORS setti
 
 ### Backend
 
-The backend already has a repo-local Cloud Run template and env sample. A typical backend deploy still uses:
-
 ```bash
 export GOOGLE_CLOUD_PROJECT=your-project
 export GOOGLE_CLOUD_REGION=your-region
@@ -103,17 +96,16 @@ export IMAGE=your-backend-image
 
 ### Browser-runtime
 
-Deploy the browser-runtime as a separate Cloud Run service from `infra/docker/playwright.Dockerfile`, then point the backend `BROWSER_RUNTIME_BASE_URL` at the deployed runtime URL or a private internal address if you are using service-to-service networking.
+Deploy the browser-runtime as a separate Cloud Run service from `infra/docker/playwright.Dockerfile`, then point the backend `BROWSER_RUNTIME_BASE_URL` at the deployed runtime URL or internal address.
 
 ### Frontend
 
-Deploy the frontend as a separate Cloud Run service from `infra/docker/frontend.Dockerfile`, passing `NEXT_PUBLIC_API_BASE_URL` at build or deploy time so the shell points to the deployed backend.
+Deploy the frontend as a separate Cloud Run service from `infra/docker/frontend.Dockerfile`, passing `NEXT_PUBLIC_API_BASE_URL` so the shell points at the deployed backend.
 
 ## Runtime cautions
 
-- do not weaken checkpoints, final confirmation, or low-confidence behavior to simplify deployment
+- do not weaken checkpoints, final confirmation, recovery, or low-confidence behavior to simplify deployment
 - keep browser-runtime access scoped to the backend or trusted internal callers
-- keep live order context and browser state within controlled environments
 - verify screenshot, observation, and websocket flows after deploy instead of treating container startup as proof
 - keep frontend and backend origins aligned so websocket and auth flows work correctly
 
@@ -128,22 +120,19 @@ After all three services are deployed, verify:
 - frontend shell can sign in and create a live session
 - websocket connection succeeds from the deployed frontend
 - wake flow, spoken reply playback, and browser activity panel behave correctly
-- demo-store search/product/cart flow, latest-order loading, and bounded order cancellation remain reachable where implemented
-- checkpoint and final-confirmation paths still pause and resume correctly
+- the bounded nopCommerce flow can search, verify a supported product, add to cart, verify the cart, and recognize checkout entry
+- BlindNav stops before guest checkout
 
-## Containerized local preflight
+## Demo merchant note
 
-Before deploying remotely, validate the three-service stack locally:
+The active public demo merchant is `demo.nopcommerce.com`.
 
-```bash
-docker compose up --build
-```
+Deployment claims should stay bounded to:
 
-Use [TESTING.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/TESTING.md) for the checks that should pass before shipping.
+- search
+- product verification
+- cart verification
+- checkout-entry recognition
+- intentional stop before guest checkout
 
-## Demo Merchant Note
-
-Phase 1 deploys BlindNav against a single rehearsed public merchant at `demo.nopcommerce.com`.
-The deployed story should present search, product detail, cart, and runtime visibility as
-the active bounded demo path. Do not claim robust end-to-end nopCommerce checkout reliability
-unless later phases validate that behavior.
+Do not describe the deployed demo as full checkout automation.

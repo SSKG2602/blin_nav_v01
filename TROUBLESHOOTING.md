@@ -45,10 +45,10 @@ Check:
 Check:
 
 - `GEMINI_API_KEY` is set
-- the configured Gemini model names point to your intended Gemini 2.5 Flash deployment target
+- the configured Gemini model names point to the intended Gemini 2.5 Flash deployment target
 - outbound network access is available from the backend environment
 
-If Gemini is unavailable, interpretation or summary quality may degrade, but deterministic orchestration should still remain intact.
+If Gemini is unavailable, interpretation and summarization quality may degrade, but deterministic orchestration should remain intact.
 
 ## Wake word is not triggering
 
@@ -59,17 +59,7 @@ Check:
 - the shell entered wake-listening state
 - the websocket session is active after the wake button was pressed
 
-If the fallback message says voice recognition requires Chrome or Edge, switch browsers or use typed input.
-
-## Browser speech recognition is unavailable
-
-Check:
-
-- the browser supports `SpeechRecognition` or `webkitSpeechRecognition`
-- microphone permission has not been blocked
-- the shell is running in Chrome or Edge
-
-Safari and other unsupported browsers should fall back to typed input rather than voice recognition.
+If voice capture is unstable, fall back to typed input and run the same bounded demo flow.
 
 ## Browser-native TTS is not speaking
 
@@ -102,53 +92,61 @@ Check:
 
 Check:
 
-- the page is a supported nopCommerce product detail page, not a listing card or login surface
+- the page is a supported nopCommerce product detail page
 - the product does not require unresolved attribute selection such as `Processor *` or `RAM *`
 - the quantity input does not advertise a minimum quantity above `1`
-- the runtime reported a real success signal such as a cart badge increase or success notification
+- the runtime reported a real success signal such as a cart badge increase or cart verification
 
-If the runtime reports `option_selection_required` or `minimum_quantity_required`, the halt is intentional in Phase 2.
+If the runtime reports `option_selection_required` or `minimum_quantity_required`, the halt is intentional.
 
-## Checkout stops at sign-in or guest entry
+## Checkout entry is reached and the flow stops
 
-Check:
-
-- the cart page exposes the `Checkout` control and, if present, the terms-of-service checkbox
-- the runtime reached `demo.nopcommerce.com/login/checkoutasguest` or an equivalent guest/sign-in entry page
-- the demo is not being described as full checkout automation
-
-Phase 2 only recognizes and verifies checkout entry. Address entry, payment, and order placement remain deferred.
-
-## Order cancellation is unavailable
+This is expected in the current demo.
 
 Check:
 
-- a latest-order snapshot exists for the session
-- the merchant page still exposes the latest order card
-- the order is still inside the merchant’s cancellable window
+- the cart page exposed the `Checkout` control
+- any visible terms-of-service checkbox was handled safely
+- the runtime reached `demo.nopcommerce.com/login/checkoutasguest` or equivalent guest/sign-in entry
 
-If the shell says the order has already shipped, the cancellation path is no longer available by design.
+BlindNav must stop before guest checkout. Do not click `Checkout as Guest`, and do not describe this as full checkout automation.
 
-## OCR-dependent page understanding is weak
+## Recovery is triggered instead of continuing
 
-Check:
+Recovery is the correct outcome when the runtime sees:
 
-- Tesseract is installed locally when running the backend outside Docker
-- `OCR_ENABLED` is not disabled
-- the browser runtime can capture the current page successfully
+- modal interruption
+- selector degradation
+- layout drift
+- page/state desynchronization
 
-## Health checks look inconsistent
+If this happens during a live demo, either show the recovery behavior as an intentional safety feature or restart from the nopCommerce home page and retry the happy-path product.
 
-Interpret them correctly:
+## Pytest logs show database metadata warnings
 
-- `/health` checks basic process availability
-- `/health/live` checks liveness
-- `/health/ready` checks readiness, including infrastructure dependencies
+Some backend tests log PostgreSQL metadata initialization retries before dependency overrides take over.
 
-## Auth or session history looks empty
+Interpretation:
 
-Check:
+- this is environment noise in the current local setup
+- it does not mean the bounded test run failed if pytest still exits successfully
 
-- you are signed in with the expected user
-- the backend database is persistent and reachable
-- you are not switching between guest mode and signed-in mode unexpectedly
+## Frontend production build fails in this workspace path
+
+If the repo path contains `#`, Next.js tracing can fail during `npm run build` or `next build`.
+
+Workaround:
+
+- copy or clone the repo into a path without `#`
+- rerun the frontend checks there
+
+## Audit logs or spoken summaries look surprising
+
+Use the bounded contract when reading them:
+
+- `Results loaded...` means search/listing evidence is stable enough to proceed
+- `Product verified...` means a candidate passed bounded verification
+- `Added to cart... Cart verified...` means the cart had real confirmation evidence
+- `Checkout entry reached... Stopping before guest checkout.` is the intentional stop boundary
+
+If the logs show blocker or recovery reasons instead, treat that as valid safety behavior, not a failed demo by default.

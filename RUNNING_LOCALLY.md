@@ -33,7 +33,7 @@ cp .env.example .env
 - `GOOGLE_CLOUD_PROJECT`
 - `GOOGLE_CLOUD_REGION`
 
-For deployment-target parity, the docs assume Gemini 2.5 Flash as the active model target. The frontend reads `NEXT_PUBLIC_API_BASE_URL`. The backend reads the shared root `.env`. The browser-runtime is reached through `BROWSER_RUNTIME_BASE_URL`.
+The frontend reads `NEXT_PUBLIC_API_BASE_URL`. The backend reads the shared root `.env`. The browser-runtime is reached through `BROWSER_RUNTIME_BASE_URL`.
 
 ## Install dependencies
 
@@ -42,8 +42,6 @@ From the repo root:
 ```bash
 make install
 ```
-
-That installs backend dependencies, browser-runtime dependencies, and frontend dependencies for the three-service local stack.
 
 ## Start infrastructure
 
@@ -75,13 +73,6 @@ Or start all three together:
 make dev
 ```
 
-Helper scripts:
-
-- `scripts/dev/start-browser-runtime.sh`
-- `scripts/dev/start-backend.sh`
-- `scripts/dev/start-frontend.sh`
-- `scripts/dev/start-local.sh`
-
 ## Local URLs
 
 - frontend shell: `http://localhost:3100`
@@ -92,23 +83,33 @@ Helper scripts:
 
 Port `3000` is intentionally unused.
 
-## Manual smoke path
+## Manual bounded smoke path
 
 1. Open `http://localhost:3100`.
 2. Create an account or sign in.
-3. Click `Wake Luminar`.
-4. Confirm the microphone permission prompt appears in Chrome or Edge.
-5. Confirm the shell changes into wake-listening state.
+3. Start a live session.
+4. Click `Wake Luminar`.
+5. Confirm microphone permission appears in Chrome or Edge.
 6. Say `Luminar`.
-7. Confirm the transcript shows wake detection and voice capture starts.
-8. Speak a shopping command and confirm the transcript panel updates immediately.
+7. Speak `find one m8`.
+8. Confirm the transcript panel updates immediately.
 9. Confirm the backend processes the command over the live websocket as `user_text`.
 10. Confirm spoken backend replies are read aloud through browser-native TTS.
 11. Confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text.
-12. Confirm the first live navigation lands on `demo.nopcommerce.com`.
-13. Exercise clarification, checkpoint, or final-confirmation states if the flow reaches them.
-14. After an order snapshot is available, verify latest-order loading and bounded cancellation behavior.
-15. Confirm session history, cart context, and post-purchase summary surfaces remain reachable.
+12. Confirm the live navigation lands on `demo.nopcommerce.com`.
+13. Confirm search results are summarized coherently.
+14. Confirm the supported simple product is verified and added to cart.
+15. Confirm cart verification is spoken coherently.
+16. Confirm checkout entry is recognized.
+17. Confirm BlindNav stops before guest checkout.
+
+Optional blocker smoke:
+
+1. search for `build your own computer`
+2. confirm BlindNav blocks before add-to-cart
+3. confirm the blocker reason is spoken and visible in logs
+
+For the full operator script, use [docs/demo/OPERATOR_GUIDE.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/docs/demo/OPERATOR_GUIDE.md).
 
 ## Docker Compose option
 
@@ -132,7 +133,7 @@ The compose stack includes:
 - wake-word capture and voice command recognition rely on browser speech recognition support
 - browser-native TTS relies on `window.speechSynthesis`
 - Chrome or Edge is the supported browser path for the full voice experience
-- if speech recognition is unavailable, typed input still remains available in the shell
+- if speech recognition is unavailable, typed input remains available in the shell
 
 ## Local shutdown
 

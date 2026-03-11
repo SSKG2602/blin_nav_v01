@@ -2,31 +2,29 @@
 
 The authoritative repo-level API summary is [API_OVERVIEW.md](/Users/shreyasshashi/Desktop/Gemini_Project/skms#7864/API_OVERVIEW.md).
 
-This folder note keeps the `docs/api` path available for more detailed endpoint notes without duplicating the top-level overview.
+This note keeps the `docs/api` path available without duplicating the full overview.
 
-## Current API shape
+## Current public demo API shape
 
 BlindNav currently exposes route groups for:
 
 - health and readiness
 - lightweight auth and user identity
-- bounded demo-store session initialization on `demo.nopcommerce.com`
+- bounded session initialization on `demo.nopcommerce.com`
 - session lifecycle, logs, context, and history
-- agent-step execution
+- deterministic `agent/step` execution
 - live websocket sessions
 - checkpoint and final-confirmation resolution
 - runtime observation and screenshot inspection
-- cart adjustment, latest-order loading, and order cancellation
+- cart adjustment helpers used by the operator shell
 
-## Live transport highlights
+## Active demo boundary
 
-The live websocket is the main interactive surface for:
+The public demo flow stops at checkout-entry recognition. The current demo should not be described as using the API for guest checkout execution, payment, or order placement.
 
-- wake-driven spoken input becoming `user_text`
-- backend `spoken_output` events
-- interruption and cancel
-- clarification responses
-- checkpoint and final-confirmation resolution
+## Internal/non-demo surfaces
+
+Some routes for latest-order loading or cancellation still exist in the runnable codebase, but they are not part of the active Phase 4 demo story and should not be used as judging claims.
 
 ## Contract location
 
@@ -34,7 +32,3 @@ Implementation contracts live in:
 
 - `apps/api/app/schemas`
 - `apps/web/lib/types.ts`
-
-## Scope rule
-
-This folder should document only active endpoints and payloads that exist in the runnable codebase.

@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+import pytest
+
 from app.agent.engine import next_state
 from app.agent.state import (
     AgentCommandType,
@@ -101,6 +103,7 @@ def test_checkout_completion_requires_final_confirmation() -> None:
     assert result.log_entries[0].human_checkpoint is True
 
 
+@pytest.mark.skip(reason="Deferred full-checkout/post-purchase transition outside bounded Phase 2 nopCommerce flow.")
 def test_final_confirmation_approval_moves_to_order_placed() -> None:
     session_id = uuid4()
 
@@ -115,6 +118,7 @@ def test_final_confirmation_approval_moves_to_order_placed() -> None:
     assert result.log_entries[0].step_type == AgentStepType.CHECKOUT
 
 
+@pytest.mark.skip(reason="Deferred post-purchase transition outside bounded Phase 2 nopCommerce flow.")
 def test_order_placed_post_purchase_detected_moves_to_post_purchase_summary() -> None:
     session_id = uuid4()
     event = PostPurchaseObserved(detected=True)

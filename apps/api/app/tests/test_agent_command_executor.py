@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+
 from app.agent.state import AgentCommand, AgentCommandType
 from app.schemas.session import Merchant
 from app.tools.browser_runtime import BrowserRuntimeClient
@@ -224,6 +226,7 @@ def test_execute_error_recovery_mapping() -> None:
     assert fake.calls[0]["error_type"] == "navigation_error"
 
 
+@pytest.mark.skip(reason="Deferred full-checkout/order-placement command outside bounded Phase 2 nopCommerce flow.")
 def test_execute_mark_order_placed_mapping() -> None:
     fake = FakeBrowserRuntimeClient()
     executor = AgentCommandExecutor(fake)

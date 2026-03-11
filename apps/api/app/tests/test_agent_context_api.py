@@ -114,10 +114,14 @@ class FakeLLMClient:
         if self.raise_multimodal_error:
             raise RuntimeError("multimodal analysis unavailable")
         decision = self.multimodal_decision
+        confidence = 0.22 if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else 0.62
+        confidence_band = (
+            ConfidenceBand.LOW if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else ConfidenceBand.MEDIUM
+        )
         return MultimodalAssessment(
             decision=decision,
-            confidence=0.62,
-            confidence_band=ConfidenceBand.MEDIUM,
+            confidence=confidence,
+            confidence_band=confidence_band,
             needs_user_confirmation=decision == MultimodalDecision.REQUIRE_USER_CONFIRMATION,
             needs_sensitive_checkpoint=decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
             should_halt_low_confidence=decision == MultimodalDecision.HALT_LOW_CONFIDENCE,
@@ -208,7 +212,7 @@ def test_agent_step_updates_session_context_with_evidence(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "htc phone",
+            "query": "one m8",
             "merchant": "demo.nopcommerce.com",
         },
     )
@@ -236,6 +240,7 @@ def test_agent_step_updates_session_context_with_evidence(
     assert payload["latest_review_assessment"] is not None
     assert payload["latest_final_purchase_confirmation"] is not None
     assert payload["latest_post_purchase_summary"] is not None
+    assert payload["latest_post_purchase_summary"]["spoken_summary"] == "Post-purchase confirmation is not visible yet."
     assert payload["latest_spoken_summary"] == fake_llm_client.summary_text
     assert payload["latest_final_session_artifact"] is not None
     assert payload["latest_final_self_diagnosis"] is not None

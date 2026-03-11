@@ -321,6 +321,48 @@ def derive_runtime_follow_up_event(
     consumed: set[str],
 ):
     if (
+        low_confidence_status.active
+        and current_state
+        not in {
+            AgentState.CLARIFICATION_REQUIRED,
+            AgentState.CHECKPOINT_SENSITIVE_ACTION,
+            AgentState.FINAL_CONFIRMATION,
+            AgentState.LOW_CONFIDENCE_HALT,
+            AgentState.SESSION_CLOSING,
+            AgentState.DONE,
+        }
+        and "low_confidence" not in consumed
+    ):
+        consumed.add("low_confidence")
+        return RecoveryTriggered(reason=low_confidence_status.reason or "low_confidence")
+
+    if (
+        recovery_status.active
+        and recovery_status.recovery_kind
+        in {
+            RecoveryKind.MODAL_INTERRUPTION,
+            RecoveryKind.CHECKOUT_BLOCKED,
+            RecoveryKind.NAVIGATION_RECOVERY,
+            RecoveryKind.PAGE_DESYNC,
+        }
+        and current_state
+        in {
+            AgentState.TRUST_CHECK,
+            AgentState.SEARCHING_PRODUCTS,
+            AgentState.VIEWING_PRODUCT_DETAIL,
+            AgentState.CART_VERIFICATION,
+            AgentState.CHECKOUT_FLOW,
+            AgentState.ASSISTED_MODE,
+            AgentState.UI_STABILIZING,
+        }
+        and "recovery" not in consumed
+    ):
+        consumed.add("recovery")
+        return RecoveryTriggered(
+            reason=recovery_status.reason or recovery_status.last_attempt_summary
+        )
+
+    if (
         clarification_request is not None
         and clarification_request.status == ClarificationStatus.PENDING
         and current_state != AgentState.CLARIFICATION_REQUIRED
@@ -337,22 +379,6 @@ def derive_runtime_follow_up_event(
             expected_fields=list(clarification_request.expected_fields),
             resume_state=clarification_request.resume_state,
         )
-
-    if (
-        low_confidence_status.active
-        and current_state
-        not in {
-            AgentState.CLARIFICATION_REQUIRED,
-            AgentState.CHECKPOINT_SENSITIVE_ACTION,
-            AgentState.FINAL_CONFIRMATION,
-            AgentState.LOW_CONFIDENCE_HALT,
-            AgentState.SESSION_CLOSING,
-            AgentState.DONE,
-        }
-        and "low_confidence" not in consumed
-    ):
-        consumed.add("low_confidence")
-        return RecoveryTriggered(reason=low_confidence_status.reason or "low_confidence")
 
     if current_state == AgentState.TRUST_CHECK and "trust_check" not in consumed:
         consumed.add("trust_check")
@@ -436,31 +462,6 @@ def derive_runtime_follow_up_event(
         return PostPurchaseObserved(
             detected=True,
             notes=post_purchase_summary.notes,
-        )
-
-    if (
-        recovery_status.active
-        and recovery_status.recovery_kind
-        in {
-            RecoveryKind.MODAL_INTERRUPTION,
-            RecoveryKind.CHECKOUT_BLOCKED,
-            RecoveryKind.NAVIGATION_RECOVERY,
-            RecoveryKind.PAGE_DESYNC,
-        }
-        and current_state
-        in {
-            AgentState.SEARCHING_PRODUCTS,
-            AgentState.VIEWING_PRODUCT_DETAIL,
-            AgentState.CART_VERIFICATION,
-            AgentState.CHECKOUT_FLOW,
-            AgentState.ASSISTED_MODE,
-            AgentState.UI_STABILIZING,
-        }
-        and "recovery" not in consumed
-    ):
-        consumed.add("recovery")
-        return RecoveryTriggered(
-            reason=recovery_status.reason or recovery_status.last_attempt_summary
         )
 
     return None

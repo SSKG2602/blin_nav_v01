@@ -10,7 +10,7 @@ BlindNav currently exposes route groups for:
 
 - health and readiness
 - lightweight auth and user identity
-- Amazon.in connect status and redirect support
+- bounded demo-store session initialization on `demo.nopcommerce.com`
 - session lifecycle, logs, context, and history
 - agent-step execution
 - live websocket sessions

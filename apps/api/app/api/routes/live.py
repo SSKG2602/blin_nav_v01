@@ -523,36 +523,6 @@ async def live_session_stream(
                     ),
                 },
             )
-            try:
-                step_response = run_agent_step(
-                    session_id=session_id,
-                    event=HumanCheckpointResolved(approved=approved),
-                    db=db,
-                    browser_client=browser_client,
-                    llm_client=llm_client,
-                )
-            except HTTPException as exc:
-                await _send_event(
-                    websocket,
-                    "error",
-                    {"detail": str(exc.detail), "locale": locale},
-                )
-                continue
-
-            await _emit_agent_step_bundle(
-                websocket,
-                db=db,
-                session_id=session_id,
-                locale=locale,
-                speech_provider=speech_provider,
-                step_response=step_response,
-                fallback_text=localize_message(
-                    "final_confirmation_approved"
-                    if approved
-                    else "final_confirmation_rejected",
-                    locale,
-                ),
-            )
             continue
 
         user_text: str | None = None

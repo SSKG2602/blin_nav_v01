@@ -34,10 +34,16 @@ class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.observation_payload: dict[str, Any] = {
-            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+            "observed_url": "https://demo.nopcommerce.com/search?q=htc",
             "page_title": "Search",
             "detected_page_hints": ["search_results"],
-            "product_candidates": [{"title": "Pedigree Dog Food", "price_text": "₹799"}],
+            "product_candidates": [
+                {
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                }
+            ],
         }
 
     def navigate_to_search_results(self, *, session_id: UUID, query: str | None, merchant) -> None:
@@ -84,13 +90,6 @@ class FakeBrowserRuntimeClient:
 
     def finalize_purchase(self, *, session_id: UUID) -> None:
         self.calls.append({"method": "finalize_purchase", "session_id": session_id})
-        self.observation_payload = {
-            "observed_url": "https://demo.nopcommerce.com/checkout/completed/1",
-            "page_title": "Thank you, your order has been placed",
-            "detected_page_hints": ["checkout"],
-            "primary_product": {"title": "Pedigree Dog Food", "price_text": "₹799"},
-            "notes": "order_confirmation_detected",
-        }
         return
 
     def handle_error_recovery(self, *, session_id: UUID, error_type: str | None = None) -> None:
@@ -298,7 +297,10 @@ def test_create_live_session_endpoint_normalizes_locale(client: TestClient) -> N
     assert payload["locale"] == "hi-IN"
 
 
-def test_live_websocket_user_text_flow(client: TestClient) -> None:
+def test_live_websocket_user_text_flow(
+    client: TestClient,
+    fake_browser_client: FakeBrowserRuntimeClient,
+) -> None:
     payload = _create_live_session(client)
     websocket_path = payload["websocket_path"]
 
@@ -318,6 +320,7 @@ def test_live_websocket_user_text_flow(client: TestClient) -> None:
         assert "interpreted_intent" in names
         assert "agent_step" in names
         assert "spoken_output" in names
+        assert not any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
 
 
 def test_live_websocket_checkpoint_event_emitted(
@@ -327,11 +330,11 @@ def test_live_websocket_checkpoint_event_emitted(
 ) -> None:
     fake_llm_client.multimodal_decision = MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT
     fake_browser_client.observation_payload = {
-        "observed_url": "https://demo.nopcommerce.com/checkout",
-        "page_title": "Checkout",
-        "detected_page_hints": ["checkout"],
+        "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+        "page_title": "Welcome, Please Sign In!",
+        "detected_page_hints": ["checkout", "guest_checkout_entry_visible"],
         "checkout_ready": True,
-        "primary_product": {"title": "Pedigree Dog Food", "price_text": "₹799"},
+        "primary_product": {"title": "HTC One M8 Android L 5.0 Lollipop", "price_text": "$245.00"},
     }
     payload = _create_live_session(client)
     websocket_path = payload["websocket_path"]
@@ -455,9 +458,9 @@ def test_live_websocket_checkpoint_response_resumes_state_machine(
         agent_step = next(event for event in events if event["event"] == "agent_step")
         assert agent_step["data"]["new_state"] == "ASSISTED_MODE"
         assert any(call["method"] == "perform_checkout" for call in fake_browser_client.calls)
+        assert not any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
 
-
-def test_live_websocket_final_confirmation_response_reaches_post_purchase_summary(
+def test_live_websocket_final_confirmation_response_stops_at_phase2_boundary(
     client: TestClient,
     fake_browser_client: FakeBrowserRuntimeClient,
     testing_session_local,
@@ -482,15 +485,12 @@ def test_live_websocket_final_confirmation_response_reaches_post_purchase_summar
         required = websocket.receive_json()
         assert required["event"] == "final_confirmation_required"
         websocket.send_json({"type": "final_confirmation_response", "approved": True})
-        events = [websocket.receive_json() for _ in range(3)]
-        names = [event["event"] for event in events]
-        assert names[0] == "final_confirmation_resolved"
-        agent_step = next(event for event in events if event["event"] == "agent_step")
-        assert agent_step["data"]["new_state"] in {"ORDER_PLACED", "POST_PURCHASE_SUMMARY"}
-        assert any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
+        resolved = websocket.receive_json()
+        assert resolved["event"] == "final_confirmation_resolved"
+        assert not any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
 
     context = client.get(f"/api/sessions/{session_id}/context")
     assert context.status_code == 200
     payload_json = context.json()
     assert payload_json["latest_final_purchase_confirmation"]["confirmed"] is True
-    assert payload_json["latest_post_purchase_summary"] is not None
+    assert payload_json["latest_post_purchase_summary"] is None

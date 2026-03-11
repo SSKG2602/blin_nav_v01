@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from fastapi import APIRouter
+
 from browser_runtime.driver import browser_session_manager
 from browser_runtime.observation.models import (
     RuntimePageObservation,

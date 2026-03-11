@@ -134,10 +134,14 @@ class ScenarioLLMClient:
         spoken_summary: str | None = None,
     ) -> MultimodalAssessment:
         decision = self._next_decision()
+        confidence = 0.22 if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else 0.66
+        confidence_band = (
+            ConfidenceBand.LOW if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else ConfidenceBand.MEDIUM
+        )
         return MultimodalAssessment(
             decision=decision,
-            confidence=0.66,
-            confidence_band=ConfidenceBand.MEDIUM,
+            confidence=confidence,
+            confidence_band=confidence_band,
             needs_user_confirmation=decision == MultimodalDecision.REQUIRE_USER_CONFIRMATION,
             needs_sensitive_checkpoint=decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
             should_halt_low_confidence=decision == MultimodalDecision.HALT_LOW_CONFIDENCE,
@@ -307,13 +311,13 @@ def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
     step = _run_user_step(
         client,
         session_id,
-        {
-            "event_type": "user_intent_parsed",
-            "intent": "search_products",
-            "query": "htc phone",
-            "merchant": "demo.nopcommerce.com",
-        },
-    )
+            {
+                "event_type": "user_intent_parsed",
+                "intent": "search_products",
+                "query": "one m8",
+                "merchant": "demo.nopcommerce.com",
+            },
+        )
     assert step["new_state"] == "FINAL_CONFIRMATION"
     assert step["commands"]
 
@@ -328,6 +332,7 @@ def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
     assert context["latest_sensitive_checkpoint"] is None
     assert context["latest_final_purchase_confirmation"]["required"] is True
     assert context["latest_cart_snapshot"]["cart_item_count"] == 1
+    assert not any(call["method"] == "finalize_purchase" for call in browser.calls)
 
 
 def test_demo_ambiguous_product_scenario_requests_clarification(scenario_env) -> None:
@@ -351,7 +356,24 @@ def test_demo_ambiguous_product_scenario_requests_clarification(scenario_env) ->
                         "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
                     },
                 ],
-            }
+            },
+            {
+                "observed_url": "https://demo.nopcommerce.com/search?q=htc+one",
+                "page_title": "Search",
+                "detected_page_hints": ["search_results"],
+                "product_candidates": [
+                    {
+                        "title": "HTC One Mini Blue",
+                        "price_text": "$189.00",
+                        "url": "https://demo.nopcommerce.com/htc-one-mini-blue",
+                    },
+                    {
+                        "title": "HTC One M8 Android L 5.0 Lollipop",
+                        "price_text": "$245.00",
+                        "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                    },
+                ],
+            },
         ]
     )
 
@@ -386,7 +408,7 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "htc phone",
+            "query": "one m8",
             "merchant": "demo.nopcommerce.com",
         },
     )
@@ -413,7 +435,7 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "htc phone",
+            "query": "one m8",
             "merchant": "demo.nopcommerce.com",
         },
     )
@@ -436,7 +458,11 @@ def test_demo_low_confidence_halt_scenario(scenario_env) -> None:
             {
                 "observed_url": "https://example.invalid/weak-signals",
                 "page_title": "Unknown page",
-            }
+            },
+            {
+                "observed_url": "https://example.invalid/weak-signals",
+                "page_title": "Unknown page",
+            },
         ]
     )
     session_id = _create_session(client)
@@ -466,7 +492,14 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
                 "detected_page_hints": ["product_detail", "option_selection_required"],
                 "notes": "modal interruption detected while parsing page",
                 "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
-            }
+            },
+            {
+                "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+                "page_title": "Build your own computer",
+                "detected_page_hints": ["product_detail", "option_selection_required"],
+                "notes": "modal interruption detected while parsing page",
+                "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
+            },
         ]
     )
     session_id = _create_session(client)
@@ -480,7 +513,12 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
             "merchant": "demo.nopcommerce.com",
         },
     )
-    assert step["new_state"] in {"SEARCHING_PRODUCTS", "ERROR_RECOVERY", "CLARIFICATION_REQUIRED"}
+    assert step["new_state"] in {
+        "SEARCHING_PRODUCTS",
+        "VIEWING_PRODUCT_DETAIL",
+        "ERROR_RECOVERY",
+        "CLARIFICATION_REQUIRED",
+    }
 
     context = _context(client, session_id)
     assert context["latest_recovery_status"]["active"] is True
@@ -489,3 +527,40 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
         "PAGE_DESYNC",
         "NAVIGATION_RECOVERY",
     }
+
+
+def test_demo_layout_shift_recovery_scenario(scenario_env) -> None:
+    client, browser, llm = scenario_env
+    llm.queue_decisions([MultimodalDecision.HALT_LOW_CONFIDENCE])
+    browser.queue_observations(
+        [
+            {
+                "observed_url": "https://demo.nopcommerce.com/search?q=htc",
+                "page_title": "Search",
+                "detected_page_hints": ["unknown"],
+                "notes": "layout shift detected while trying to stabilize search results",
+            },
+            {
+                "observed_url": "https://demo.nopcommerce.com/search?q=htc",
+                "page_title": "Search",
+                "detected_page_hints": ["unknown"],
+                "notes": "layout shift detected while trying to stabilize search results",
+            },
+        ]
+    )
+
+    session_id = _create_session(client)
+    _run_user_step(
+        client,
+        session_id,
+        {
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "htc",
+            "merchant": "demo.nopcommerce.com",
+        },
+    )
+
+    context = _context(client, session_id)
+    assert context["latest_low_confidence_status"]["active"] is True
+    assert context["latest_recovery_status"]["active"] is True

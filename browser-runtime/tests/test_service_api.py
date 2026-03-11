@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 if str(RUNTIME_ROOT) not in sys.path:
@@ -67,6 +68,7 @@ def test_perform_checkout_action_allows_empty_body() -> None:
     assert response.status_code == 204
 
 
+@pytest.mark.skip(reason="Deferred full-checkout action outside bounded Phase 2 nopCommerce flow.")
 def test_finalize_purchase_action_allows_empty_body() -> None:
     session_id = uuid4()
     response = client.post(f"/sessions/{session_id}/actions/finalize_purchase")

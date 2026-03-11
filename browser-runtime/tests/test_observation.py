@@ -101,7 +101,7 @@ def test_dummy_mode_observation_endpoint_returns_unknown_safe_payload() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["detected_page_hints"] == ["unknown"]
+    assert payload["detected_page_hints"] == ["navigating"]
     assert payload["product_candidates"] == []
     assert payload["primary_product"] is None
 

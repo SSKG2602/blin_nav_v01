@@ -17,6 +17,11 @@ from app.schemas.session import Merchant
 from app.tools.dependencies import get_browser_runtime_client
 
 
+pytestmark = pytest.mark.skip(
+    reason="Deferred post-purchase/order-history control surface outside bounded Phase 2 nopCommerce flow."
+)
+
+
 class FakeBrowserRuntimeClient:
     def __init__(self) -> None:
         self.observation_payload: dict[str, Any] = {

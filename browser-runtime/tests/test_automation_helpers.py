@@ -271,6 +271,38 @@ def test_submit_search_query_uses_small_searchterms_and_button() -> None:
     assert page.url.endswith("/search?q=htc")
 
 
+def test_submit_search_query_halts_on_blocking_modal() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/",
+        selectors={
+            "div[class*='LocationModal']": [{"visible": True}],
+            "#small-searchterms": [{"visible": True}],
+            "body": [{"text": "Welcome to our store", "visible": True}],
+        },
+    )
+
+    submitted, notes = submit_search_query(page, "htc")
+
+    assert submitted is False
+    assert "location_blocked" in notes
+    assert page.url == "https://demo.nopcommerce.com/"
+
+
+def test_submit_search_query_halts_when_search_box_missing() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/",
+        selectors={
+            ".home-page": [{"visible": True}],
+            "body": [{"text": "Welcome to our store", "visible": True}],
+        },
+    )
+
+    submitted, notes = submit_search_query(page, "htc")
+
+    assert submitted is False
+    assert notes == ["search_box_not_found"]
+
+
 def test_collect_search_result_candidates_reads_nopcommerce_cards() -> None:
     page = FakePage(
         url="https://demo.nopcommerce.com/search?q=htc",
@@ -472,6 +504,9 @@ def test_add_to_cart_blocks_minimum_quantity_product() -> None:
 
     assert added is False
     assert "minimum_quantity_required" in notes
+    assert "minimum_quantity_required:2" in notes
+    assert page._selectors["input[id*='EnteredQuantity']"][0]["attrs"]["value"] == "1"
+    assert "filled" not in page._selectors["input[id*='EnteredQuantity']"][0]
 
 
 def test_extract_cart_evidence_reads_rows_and_checkout_readiness() -> None:
@@ -548,6 +583,7 @@ def test_attempt_checkout_entry_checks_terms_and_stops_at_guest_entry() -> None:
     assert "terms_of_service_checked" in notes
     assert "guest_checkout_entry_visible" in notes
     assert page.url.endswith("/login/checkoutasguest")
+    assert page._selectors[".checkout-as-guest-button"][0].get("clicked") is not True
 
 
 def test_detect_checkout_entry_readiness_reports_cart_empty() -> None:

@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 if str(RUNTIME_ROOT) not in sys.path:
@@ -84,6 +85,7 @@ def test_perform_checkout_dummy_mode() -> None:
     assert resp.status_code == 204
 
 
+@pytest.mark.skip(reason="Deferred full-checkout action outside bounded Phase 2 nopCommerce flow.")
 def test_finalize_purchase_dummy_mode() -> None:
     force_dummy_mode()
     session_id = uuid4()

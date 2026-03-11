@@ -450,14 +450,6 @@ def resolve_final_purchase_confirmation_endpoint(
         approved=payload.approved,
         resolution_notes=payload.resolution_notes,
     )
-    _resume_after_control_resolution(
-        db=db,
-        session_id=session_id,
-        approved=payload.approved,
-        browser_client=browser_client,
-        llm_client=llm_client,
-        expected_states={AgentState.FINAL_CONFIRMATION},
-    )
     return resolved
 
 

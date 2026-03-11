@@ -1043,10 +1043,10 @@ def classify_page_state(page: Any) -> str:
 
     if _guest_checkout_entry_visible(page, url=url, body=body):
         return "checkout"
-    if "checkout" in url_text or _has_visible_selector(page, CHECKOUT_ANCHOR_SELECTORS):
-        return "checkout"
     if _cart_surface_visible(page, path=path, title=title, body=body):
         return "cart"
+    if "checkout" in url_text or _has_visible_selector(page, CHECKOUT_ANCHOR_SELECTORS):
+        return "checkout"
     if "login" in url_text or "signin" in url_text or "sign-in" in url_text:
         return "login"
     if _home_visible(page, path=path, body=body, title=title):
@@ -1916,6 +1916,7 @@ def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
                     safe_wait_for_load(page)
                     notes.append("checkout_click_attempted")
                     if _guest_checkout_entry_visible(page, url=safe_page_url(page), body=safe_body_text(page)):
+                        notes.append("guest_checkout_entry_visible")
                         notes.append("checkout_entry_reached")
                         return True, notes
                     if classify_page_state(page) == "checkout":
@@ -1938,6 +1939,20 @@ def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
 
 
 def extract_cart_evidence(page: Any) -> dict[str, Any]:
+    def _extract_quantity_value(row: Any) -> str | None:
+        for selector in CART_ROW_QUANTITY_TEXT_SELECTORS:
+            locator = safe_locator(row, selector)
+            if locator is None or safe_count(locator) <= 0:
+                continue
+            target = _first(locator)
+            value = safe_get_attribute(target, "value")
+            if value:
+                return value
+            text = safe_inner_text(target)
+            if text:
+                return text
+        return None
+
     cart_items: list[dict[str, Any]] = []
     count_from_subtotal = _read_cart_badge_count(page)
     row_count = 0
@@ -1954,11 +1969,7 @@ def extract_cart_evidence(page: Any) -> dict[str, Any]:
             if url and url.startswith("/"):
                 url = urljoin(BB_HOME_URL, url)
             price_text = _extract_first_text(row, CART_ROW_PRICE_SELECTORS)
-            quantity_locator = safe_locator(row, "input[name*='quantity'], input[name*='qty']")
-            quantity_text = _extract_first_text(row, CART_ROW_QUANTITY_TEXT_SELECTORS) or safe_get_attribute(
-                _first(quantity_locator) if quantity_locator is not None else row,
-                "value",
-            )
+            quantity_text = _extract_quantity_value(row)
             variant_text = _extract_first_text(row, CART_ROW_VARIANT_SELECTORS)
             merchant_item_ref = safe_get_attribute(row, "data-sku") or safe_get_attribute(row, "data-item-id")
             item_id = merchant_item_ref or url or title or f"cart-item-{index}"

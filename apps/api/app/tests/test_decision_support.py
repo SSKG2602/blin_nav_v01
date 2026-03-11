@@ -158,18 +158,18 @@ def test_final_purchase_confirmation_required_and_not_required() -> None:
     assert not_required.required is False
 
 
-def test_post_purchase_summary_detected_and_fallback() -> None:
-    detected = derive_post_purchase_summary(
+def test_post_purchase_summary_fallback_before_order_completion() -> None:
+    pending = derive_post_purchase_summary(
         page=PageUnderstanding(
             page_type=PageType.CHECKOUT,
-            page_title="Thank you, your order has been placed",
+            page_title="Welcome, Please Sign In!",
             confidence=0.85,
-            primary_product=ProductCandidate(title="Dog Food 3kg", price_text="₹799"),
+            primary_product=ProductCandidate(title="HTC One M8 Android L 5.0 Lollipop", price_text="$245.00"),
         ),
-        observation={"observed_url": "https://demo.nopcommerce.com/checkout/completed/1"},
+        observation={"observed_url": "https://demo.nopcommerce.com/login/checkoutasguest"},
     )
-    assert "order appears placed" in detected.spoken_summary.lower()
-    assert detected.order_item_title == "Dog Food 3kg"
+    assert "not visible yet" in pending.spoken_summary.lower()
+    assert pending.order_item_title is None
 
     fallback = derive_post_purchase_summary(
         page=PageUnderstanding(page_type=PageType.PRODUCT_DETAIL, page_title="Product page", confidence=0.8),

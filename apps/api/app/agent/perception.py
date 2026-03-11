@@ -211,12 +211,14 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
     explicit_page_type = _to_page_type(raw_data.get("page_type"))
     candidates = _extract_candidates(raw_data)
 
+    blocked_page = raw_data.get("blocked_page") is True
+
     primary_product = _coerce_candidate(raw_data.get("primary_product"))
-    if primary_product is None:
+    if primary_product is None and not blocked_page:
         detail_candidate = _build_detail_candidate(raw_data)
         if detail_candidate is not None:
             primary_product = detail_candidate
-    if primary_product is None and candidates:
+    if primary_product is None and candidates and not blocked_page:
         primary_product = candidates[0]
 
     cart_item_count = _coerce_int(raw_data.get("cart_item_count"))
@@ -239,11 +241,11 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
         cart_item_count=cart_item_count,
         checkout_ready=checkout_ready,
     )
-    if raw_data.get("blocked_page") is True:
+    if blocked_page:
         confidence = min(confidence, 0.10)
 
     notes = raw_data.get("notes") if isinstance(raw_data.get("notes"), str) else None
-    if notes is None and raw_data.get("blocked_page") is True:
+    if notes is None and blocked_page:
         notes = "The demo store blocked the runtime browser session."
     if notes is None and page_type == PageType.UNKNOWN:
         notes = "Page type could not be inferred from current signals."

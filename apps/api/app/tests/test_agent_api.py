@@ -246,10 +246,14 @@ class FakeLLMClient:
         spoken_summary: str | None = None,
     ) -> MultimodalAssessment:
         decision = self.multimodal_decision
+        confidence = 0.22 if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else 0.55
+        confidence_band = (
+            ConfidenceBand.LOW if decision == MultimodalDecision.HALT_LOW_CONFIDENCE else ConfidenceBand.MEDIUM
+        )
         return MultimodalAssessment(
             decision=decision,
-            confidence=0.55,
-            confidence_band=ConfidenceBand.MEDIUM,
+            confidence=confidence,
+            confidence_band=confidence_band,
             needs_user_confirmation=decision == MultimodalDecision.REQUIRE_USER_CONFIRMATION,
             needs_sensitive_checkpoint=decision == MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
             should_halt_low_confidence=decision == MultimodalDecision.HALT_LOW_CONFIDENCE,
@@ -328,7 +332,7 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "htc phone",
+            "query": "one m8",
             "merchant": "demo.nopcommerce.com",
         },
     )
@@ -358,13 +362,14 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
         "review_cart",
         "perform_checkout",
     ]
-    assert fake_browser_client.calls[0]["query"] == "htc phone"
+    assert fake_browser_client.calls[0]["query"] == "one m8"
     assert fake_browser_client.calls[0]["merchant"] == Merchant.DEMO_STORE
     assert (
         fake_browser_client.calls[1]["candidate_url"]
         == "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop"
     )
     assert fake_browser_client.calls[2]["size_hint"] is None
+    assert not any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
 
     with testing_session_local() as db:
         logs = list_agent_logs_for_session(db, session_uuid)

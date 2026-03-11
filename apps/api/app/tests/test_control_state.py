@@ -109,7 +109,7 @@ def test_derive_recovery_status_for_expected_state_mismatch() -> None:
 def test_derive_sensitive_checkpoint_from_explicit_captcha_signal() -> None:
     page = PageUnderstanding(
         page_type=PageType.CHECKOUT,
-        page_title="Amazon checkout",
+        page_title="Checkout verification",
         confidence=0.82,
         notes="captcha_visible checkout_anchor_present",
     )

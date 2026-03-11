@@ -101,6 +101,8 @@ def test_checkout_completion_requires_final_confirmation() -> None:
     assert result.new_state == AgentState.FINAL_CONFIRMATION
     assert result.commands[0].type == AgentCommandType.REQUEST_FINAL_CONFIRMATION
     assert result.log_entries[0].human_checkpoint is True
+    assert result.spoken_summary == "Checkout entry reached. Stopping before guest checkout."
+    assert "stopping before guest checkout" in (result.log_entries[0].tool_output_excerpt or "").lower()
 
 
 @pytest.mark.skip(reason="Deferred full-checkout/post-purchase transition outside bounded Phase 2 nopCommerce flow.")

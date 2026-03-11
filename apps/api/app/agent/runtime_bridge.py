@@ -200,11 +200,22 @@ def derive_bounded_demo_spoken_summary(
         return "I stopped because the current page evidence is too weak to continue safely."
 
     if clarification_request is not None and clarification_request.status == ClarificationStatus.PENDING:
+        blocker_reason = _blocker_reason(page, verification)
         if clarification_request.kind == ClarificationKind.PRODUCT_SELECTION:
             option_count = len(clarification_request.candidate_options)
             return (
                 f"Results loaded. I found {option_count} similar products and need confirmation before opening one."
             )
+        if blocker_reason == "required_options":
+            title = _candidate_title(page, cart_snapshot) or "the current product"
+            return f"Product blocked before add to cart. {title} still needs required options selected."
+        if blocker_reason and blocker_reason.startswith("minimum_quantity_"):
+            title = _candidate_title(page, cart_snapshot) or "the current product"
+            minimum_quantity = blocker_reason.rsplit("_", 1)[-1]
+            return f"Product blocked before add to cart. {title} requires minimum quantity {minimum_quantity}."
+        if blocker_reason == "minimum_quantity":
+            title = _candidate_title(page, cart_snapshot) or "the current product"
+            return f"Product blocked before add to cart. {title} requires a higher minimum quantity."
         if clarification_request.kind in {
             ClarificationKind.PRODUCT_AMBIGUITY,
             ClarificationKind.PARTIAL_MATCH,
@@ -511,6 +522,42 @@ def derive_clarification_request(
     )
     if candidate_selection_request is not None:
         return candidate_selection_request
+
+    blocker_reason = _blocker_reason(page, verification)
+    if current_state == AgentState.VIEWING_PRODUCT_DETAIL and blocker_reason == "required_options":
+        return ClarificationRequest(
+            kind=ClarificationKind.VARIANT_PRECISION,
+            status=ClarificationStatus.PENDING,
+            reason="Required product options must be selected before add to cart is safe.",
+            prompt_to_user="This product needs required options selected before I can add it to the cart.",
+            original_user_goal=_truthy_text(product_intent.raw_query if product_intent is not None else None),
+            candidate_summary=_candidate_title(page) or _truthy_text(page.page_title if page is not None else None),
+            candidate_options=[],
+            expected_fields=["variant"],
+            resume_state=AgentState.VIEWING_PRODUCT_DETAIL.value,
+            created_at=datetime.utcnow(),
+        )
+    if current_state == AgentState.VIEWING_PRODUCT_DETAIL and blocker_reason is not None and blocker_reason.startswith(
+        "minimum_quantity"
+    ):
+        minimum_quantity = _extract_minimum_quantity_value(page)
+        prompt = "This product requires a higher minimum quantity before I can add it to the cart."
+        if minimum_quantity is not None:
+            prompt = (
+                f"This product requires minimum quantity {minimum_quantity} before I can add it to the cart."
+            )
+        return ClarificationRequest(
+            kind=ClarificationKind.PARTIAL_MATCH,
+            status=ClarificationStatus.PENDING,
+            reason="Minimum quantity must be confirmed explicitly before add to cart is safe.",
+            prompt_to_user=prompt,
+            original_user_goal=_truthy_text(product_intent.raw_query if product_intent is not None else None),
+            candidate_summary=_candidate_title(page) or _truthy_text(page.page_title if page is not None else None),
+            candidate_options=[],
+            expected_fields=["quantity_text"],
+            resume_state=AgentState.VIEWING_PRODUCT_DETAIL.value,
+            created_at=datetime.utcnow(),
+        )
 
     if verification is None:
         return None

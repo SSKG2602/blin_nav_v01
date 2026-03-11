@@ -158,11 +158,13 @@ def test_cart_like_observation_snapshot() -> None:
             "observed_url": "https://demo.nopcommerce.com/cart",
             "page_title": "Shopping cart",
             "cart_item_count": 2,
+            "notes": "cart_verified:2, cart_items_visible",
         }
     )
 
     assert "cart" in observation.detected_page_hints
     assert observation.cart_item_count == 2
+    assert observation.notes == "cart_verified:2, cart_items_visible"
 
 
 def test_checkout_like_observation_snapshot() -> None:
@@ -171,12 +173,14 @@ def test_checkout_like_observation_snapshot() -> None:
             "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
             "page_title": "Welcome, Please Sign In!",
             "checkout_ready": True,
+            "notes": "guest_checkout_entry_visible, bounded_checkout_entry_stop",
         }
     )
 
     assert "checkout" in observation.detected_page_hints
     assert "guest_checkout_entry_visible" in observation.detected_page_hints
     assert observation.checkout_ready is True
+    assert observation.notes == "guest_checkout_entry_visible, bounded_checkout_entry_stop"
 
 
 def test_product_detail_current_page_observation_carries_blocker_hints() -> None:

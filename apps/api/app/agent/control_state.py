@@ -281,16 +281,6 @@ def derive_recovery_status(
             last_updated_at=now,
         )
 
-    return RecoveryStatus(
-        active=False,
-        recovery_kind=None,
-        reason=None,
-        last_attempt_summary=None,
-        expected_state=current_state.value,
-        observed_page_type=observed_page_type,
-        recovery_outcome="stable",
-        last_updated_at=None,
-    )
     if (
         "layout shift" in page_notes
         or "layout_shift" in page_notes
@@ -311,3 +301,14 @@ def derive_recovery_status(
             recovery_outcome="selector_degradation",
             last_updated_at=now,
         )
+
+    return RecoveryStatus(
+        active=False,
+        recovery_kind=None,
+        reason=None,
+        last_attempt_summary=None,
+        expected_state=current_state.value,
+        observed_page_type=observed_page_type,
+        recovery_outcome="stable",
+        last_updated_at=None,
+    )

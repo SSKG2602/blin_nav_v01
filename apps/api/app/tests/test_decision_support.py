@@ -143,11 +143,19 @@ def test_final_purchase_confirmation_required_and_not_required() -> None:
     required = derive_final_purchase_confirmation(
         checkpoint=checkpoint,
         multimodal_assessment=_assessment(MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT),
-        page=PageUnderstanding(page_type=PageType.CHECKOUT, confidence=0.8, checkout_ready=True),
+        page=PageUnderstanding(
+            page_type=PageType.CHECKOUT,
+            confidence=0.8,
+            checkout_ready=True,
+            detected_page_hints=["checkout", "guest_checkout_entry_visible"],
+            notes="guest_checkout_entry_visible, bounded_checkout_entry_stop",
+        ),
         previous_confirmation=None,
     )
     assert required.required is True
     assert required.confirmed is False
+    assert "stop before guest checkout" in (required.prompt_to_user or "").lower()
+    assert "boundary" in (required.notes or "").lower()
 
     not_required = derive_final_purchase_confirmation(
         checkpoint=None,

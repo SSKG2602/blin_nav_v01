@@ -106,6 +106,28 @@ def test_derive_recovery_status_for_expected_state_mismatch() -> None:
     assert recovery.recovery_outcome == "pending_reconciliation"
 
 
+def test_derive_recovery_status_for_selector_degradation() -> None:
+    page = PageUnderstanding(
+        page_type=PageType.SEARCH_RESULTS,
+        confidence=0.62,
+        detected_page_hints=["search_results", "selector_degradation"],
+        notes="selector degradation detected while stabilizing results",
+    )
+
+    recovery = derive_recovery_status(
+        current_state=AgentState.SEARCHING_PRODUCTS,
+        multimodal_assessment=_assessment(MultimodalDecision.PROCEED, confidence=0.7),
+        page=page,
+        low_confidence_status=derive_low_confidence_status(
+            multimodal_assessment=_assessment(MultimodalDecision.PROCEED, confidence=0.7),
+        ),
+    )
+
+    assert recovery.active is True
+    assert recovery.recovery_kind == RecoveryKind.PAGE_DESYNC
+    assert recovery.recovery_outcome == "selector_degradation"
+
+
 def test_derive_sensitive_checkpoint_from_explicit_captcha_signal() -> None:
     page = PageUnderstanding(
         page_type=PageType.CHECKOUT,

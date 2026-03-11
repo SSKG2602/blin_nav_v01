@@ -320,6 +320,10 @@ def test_live_websocket_user_text_flow(
         assert "interpreted_intent" in names
         assert "agent_step" in names
         assert "spoken_output" in names
+        agent_step = next(event for event in events if event["event"] == "agent_step")
+        spoken_output = next(event for event in events if event["event"] == "spoken_output")
+        assert agent_step["data"]["spoken_summary"] == "Results loaded. I found 1 candidate on the demo store."
+        assert spoken_output["data"]["text"].endswith("Results loaded. I found 1 candidate on the demo store.")
         assert not any(call["method"] == "finalize_purchase" for call in fake_browser_client.calls)
 
 

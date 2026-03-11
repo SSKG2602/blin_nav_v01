@@ -339,7 +339,10 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
     assert response.status_code == 200
     data = response.json()
     assert data["new_state"] == "FINAL_CONFIRMATION"
-    assert data["spoken_summary"]
+    assert (
+        data["spoken_summary"]
+        == "Checkout entry reached for HTC One M8 Android L 5.0 Lollipop. Stopping before guest checkout."
+    )
     assert [
         command["type"] for command in data["commands"]
     ] == [
@@ -374,6 +377,22 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
     with testing_session_local() as db:
         logs = list_agent_logs_for_session(db, session_uuid)
         assert len(logs) >= 5
+        audit_logs = [log for log in logs if log.tool_name == "agent.audit"]
+        assert audit_logs
+        assert any(log.tool_input_excerpt and "page=SEARCH_RESULTS" in log.tool_input_excerpt for log in audit_logs)
+        assert any(log.tool_output_excerpt and "verification=MATCH" in log.tool_output_excerpt for log in audit_logs)
+        assert any(
+            log.tool_output_excerpt and "checkout_stop=guest_checkout_entry_visible" in log.tool_output_excerpt
+            for log in audit_logs
+        )
+        assert any(
+            log.user_spoken_summary == "Results loaded. I found 2 candidates on the demo store."
+            for log in audit_logs
+        )
+        assert any(
+            log.user_spoken_summary == "Checkout entry reached for HTC One M8 Android L 5.0 Lollipop. Stopping before guest checkout."
+            for log in audit_logs
+        )
 
         session = get_session(db, session_uuid)
         assert session is not None
@@ -510,6 +529,67 @@ def test_agent_step_approved_product_selection_opens_bound_candidate(
     inspect_calls = [call for call in fake_browser_client.calls if call["method"] == "inspect_product_page"]
     assert inspect_calls
     assert inspect_calls[0]["candidate_url"] == selected_option["candidate_url"]
+
+
+def test_agent_step_runtime_blocker_requests_clarification_before_add_to_cart(
+    client: TestClient,
+    fake_browser_client: FakeBrowserRuntimeClient,
+) -> None:
+    fake_browser_client.search_observation_override = {
+        "observed_url": "https://demo.nopcommerce.com/search?q=build+your+own+computer",
+        "page_title": "Search",
+        "detected_page_hints": ["search_results"],
+        "product_candidates": [
+            {
+                "title": "Build your own computer",
+                "price_text": "$1,200.00",
+                "url": "https://demo.nopcommerce.com/build-your-own-computer",
+                "summary_text": "Desktop computer demo fixture",
+            },
+        ],
+    }
+    fake_browser_client.product_observation_override = {
+        "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+        "page_title": "Build your own computer",
+        "detected_page_hints": ["product_detail", "option_selection_required"],
+        "primary_product": {
+            "title": "Build your own computer",
+            "price_text": "$1,200.00",
+            "summary_text": "Desktop computer demo fixture",
+            "variant_options": ["Processor *", "RAM *"],
+        },
+        "notes": "option_selection_required, required_options:Processor *; RAM *",
+    }
+
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
+    session_id = created["session_id"]
+
+    response = client.post(
+        f"/api/sessions/{session_id}/agent/step",
+        json={
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "build your own computer",
+            "merchant": "demo.nopcommerce.com",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["new_state"] == "CLARIFICATION_REQUIRED"
+    assert (
+        payload["spoken_summary"]
+        == "Product blocked before add to cart. Build your own computer still needs required options selected."
+    )
+    assert [call["method"] for call in fake_browser_client.calls] == [
+        "navigate_to_search_results",
+        "inspect_product_page",
+        "select_product_variant",
+    ]
+
+    context = client.get(f"/api/sessions/{session_id}/context").json()
+    assert context["latest_clarification_request"]["kind"] == "VARIANT_PRECISION"
+    assert "option_selection_required" in context["latest_page_understanding"]["detected_page_hints"]
 
 
 def test_agent_step_returns_404_for_missing_session(

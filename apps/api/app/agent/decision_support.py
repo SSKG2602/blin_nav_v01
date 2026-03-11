@@ -342,9 +342,17 @@ def derive_final_purchase_confirmation(
             return FinalPurchaseConfirmation(
                 required=True,
                 confirmed=False,
-                prompt_to_user=checkpoint.prompt_to_user,
+                prompt_to_user=(
+                    "Checkout entry is visible. Stop before guest checkout until you explicitly confirm the next step."
+                    if "guest_checkout_entry_visible" in page_hints
+                    else checkpoint.prompt_to_user
+                ),
                 confirmation_phrase_expected="confirm purchase",
-                notes=f"Checkpoint pending: {checkpoint.kind.value}",
+                notes=(
+                    "Checkout entry boundary reached on the bounded demo path."
+                    if "guest_checkout_entry_visible" in page_hints
+                    else f"Checkpoint pending: {checkpoint.kind.value}"
+                ),
             )
         if (
             checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
@@ -353,9 +361,17 @@ def derive_final_purchase_confirmation(
             return FinalPurchaseConfirmation(
                 required=True,
                 confirmed=False,
-                prompt_to_user="Final checkpoint cleared. Please provide explicit purchase confirmation.",
+                prompt_to_user=(
+                    "Checkout entry is visible. Stop before guest checkout until you explicitly confirm the next step."
+                    if "guest_checkout_entry_visible" in page_hints
+                    else "Final checkpoint cleared. Please provide explicit purchase confirmation."
+                ),
                 confirmation_phrase_expected="confirm purchase",
-                notes=f"Checkpoint approved: {checkpoint.kind.value}. Awaiting explicit final confirmation.",
+                notes=(
+                    "Checkout entry boundary reached on the bounded demo path."
+                    if "guest_checkout_entry_visible" in page_hints
+                    else f"Checkpoint approved: {checkpoint.kind.value}. Awaiting explicit final confirmation."
+                ),
             )
         if (
             checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION

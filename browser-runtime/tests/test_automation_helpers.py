@@ -543,6 +543,8 @@ def test_extract_cart_evidence_reads_rows_and_checkout_readiness() -> None:
     assert evidence["cart_items"][0]["quantity_text"] == "1"
     assert "terms_of_service_required" in (evidence["notes"] or [])
     assert "cart_total_visible:$245.00" in (evidence["notes"] or [])
+    assert "cart_items_visible" in (evidence["notes"] or [])
+    assert "cart_verified:1" in (evidence["notes"] or [])
 
 
 def test_attempt_checkout_entry_checks_terms_and_stops_at_guest_entry() -> None:
@@ -582,6 +584,7 @@ def test_attempt_checkout_entry_checks_terms_and_stops_at_guest_entry() -> None:
     assert initiated is True
     assert "terms_of_service_checked" in notes
     assert "guest_checkout_entry_visible" in notes
+    assert "bounded_checkout_entry_stop" in notes
     assert page.url.endswith("/login/checkoutasguest")
     assert page._selectors[".checkout-as-guest-button"][0].get("clicked") is not True
 
@@ -599,6 +602,23 @@ def test_detect_checkout_entry_readiness_reports_cart_empty() -> None:
 
     assert ready is False
     assert "cart_empty" in notes
+
+
+def test_detect_checkout_entry_readiness_marks_bounded_stop_on_guest_entry() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/login/checkoutasguest",
+        title="Welcome, Please Sign In!",
+        selectors={
+            ".checkout-as-guest-button": [{"visible": True, "text": "Checkout as Guest"}],
+            "body": [{"text": "Welcome, please sign in or checkout as guest", "visible": True}],
+        },
+    )
+
+    ready, notes = detect_checkout_entry_readiness(page)
+
+    assert ready is True
+    assert "guest_checkout_entry_visible" in notes
+    assert "bounded_checkout_entry_stop" in notes
 
 
 def test_dismiss_common_interruptions_fails_safely() -> None:

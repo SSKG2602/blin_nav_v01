@@ -216,6 +216,12 @@ def _context(client: TestClient, session_id: str) -> dict[str, Any]:
     return response.json()
 
 
+def _logs(client: TestClient, session_id: str) -> list[dict[str, Any]]:
+    response = client.get(f"/api/sessions/{session_id}/logs")
+    assert response.status_code == 200
+    return response.json()
+
+
 def _happy_path_observations() -> list[dict[str, Any]]:
     return [
         {
@@ -302,6 +308,72 @@ def _happy_path_observations() -> list[dict[str, Any]]:
     ]
 
 
+def _required_options_blocker_observations() -> list[dict[str, Any]]:
+    return [
+        {
+            "observed_url": "https://demo.nopcommerce.com",
+            "page_title": "nopCommerce demo store",
+            "detected_page_hints": ["home"],
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/search?q=build+your+own+computer",
+            "page_title": "Search",
+            "detected_page_hints": ["search_results"],
+            "product_candidates": [
+                {
+                    "title": "Build your own computer",
+                    "price_text": "$1,200.00",
+                    "url": "https://demo.nopcommerce.com/build-your-own-computer",
+                    "summary_text": "Desktop computer demo fixture",
+                }
+            ],
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+            "page_title": "Build your own computer",
+            "detected_page_hints": ["product_detail", "option_selection_required"],
+            "primary_product": {
+                "title": "Build your own computer",
+                "price_text": "$1,200.00",
+                "summary_text": "Desktop computer demo fixture",
+                "variant_options": ["Processor *", "RAM *", "HDD *"],
+            },
+            "notes": "option_selection_required, required_options:Processor *; RAM *; HDD *",
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+            "page_title": "Build your own computer",
+            "detected_page_hints": ["product_detail", "option_selection_required"],
+            "primary_product": {
+                "title": "Build your own computer",
+                "price_text": "$1,200.00",
+                "summary_text": "Desktop computer demo fixture",
+                "variant_options": ["Processor *", "RAM *", "HDD *"],
+            },
+            "notes": "option_selection_required, required_options:Processor *; RAM *; HDD *",
+        },
+    ]
+
+
+def _modal_recovery_observations() -> list[dict[str, Any]]:
+    return [
+        {
+            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+            "page_title": "Build your own computer",
+            "detected_page_hints": ["product_detail", "option_selection_required"],
+            "notes": "modal interruption detected while parsing page",
+            "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+            "page_title": "Build your own computer",
+            "detected_page_hints": ["product_detail", "option_selection_required"],
+            "notes": "modal interruption detected while parsing page",
+            "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
+        },
+    ]
+
+
 def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
     client, browser, llm = scenario_env
     llm.queue_decisions([MultimodalDecision.PROCEED])
@@ -320,6 +392,10 @@ def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
         )
     assert step["new_state"] == "FINAL_CONFIRMATION"
     assert step["commands"]
+    assert (
+        step["spoken_summary"]
+        == "Checkout entry reached for HTC One M8 Android L 5.0 Lollipop. Stopping before guest checkout."
+    )
 
     context = _context(client, session_id)
     assert context["latest_page_understanding"] is not None
@@ -331,8 +407,87 @@ def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
     assert context["latest_recovery_status"]["active"] is False
     assert context["latest_sensitive_checkpoint"] is None
     assert context["latest_final_purchase_confirmation"]["required"] is True
+    assert "boundary" in (context["latest_final_purchase_confirmation"]["notes"] or "").lower()
     assert context["latest_cart_snapshot"]["cart_item_count"] == 1
     assert not any(call["method"] == "finalize_purchase" for call in browser.calls)
+
+
+def test_demo_golden_happy_path_audit_and_micro_summaries_are_replayable(scenario_env) -> None:
+    client, browser, llm = scenario_env
+    llm.queue_decisions([MultimodalDecision.PROCEED])
+    browser.queue_observations(_happy_path_observations())
+
+    session_id = _create_session(client)
+    _run_user_step(
+        client,
+        session_id,
+        {
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "one m8",
+            "merchant": "demo.nopcommerce.com",
+        },
+    )
+
+    audit_logs = [entry for entry in _logs(client, session_id) if entry.get("tool_name") == "agent.audit"]
+    spoken_summaries = [entry.get("user_spoken_summary") for entry in audit_logs]
+
+    assert any(summary == "Results loaded. I found 1 candidate on the demo store." for summary in spoken_summaries)
+    assert any(summary == "Product verified: HTC One M8 Android L 5.0 Lollipop at $245.00." for summary in spoken_summaries)
+    assert any(summary == "Added to cart: HTC One M8 Android L 5.0 Lollipop. Cart verified with 1 item." for summary in spoken_summaries)
+    assert any(
+        summary == "Checkout entry reached for HTC One M8 Android L 5.0 Lollipop. Stopping before guest checkout."
+        for summary in spoken_summaries
+    )
+    assert any("page=SEARCH_RESULTS" in (entry.get("tool_input_excerpt") or "") for entry in audit_logs)
+    assert any("verification=MATCH" in (entry.get("tool_output_excerpt") or "") for entry in audit_logs)
+    assert any("cart=1" in (entry.get("tool_output_excerpt") or "") for entry in audit_logs)
+    assert any("checkout_stop=guest_checkout_entry_visible" in (entry.get("tool_output_excerpt") or "") for entry in audit_logs)
+
+
+def test_demo_blocker_path_requests_clarification_before_add_to_cart(scenario_env) -> None:
+    client, browser, llm = scenario_env
+    llm.queue_decisions([MultimodalDecision.PROCEED])
+    browser.queue_observations(_required_options_blocker_observations())
+
+    session_id = _create_session(client)
+    step = _run_user_step(
+        client,
+        session_id,
+        {
+            "event_type": "user_intent_parsed",
+            "intent": "search_products",
+            "query": "build your own computer",
+            "merchant": "demo.nopcommerce.com",
+        },
+    )
+
+    assert step["new_state"] == "CLARIFICATION_REQUIRED"
+    assert (
+        step["spoken_summary"]
+        == "Product blocked before add to cart. Build your own computer still needs required options selected."
+    )
+    action_methods = [
+        call["method"]
+        for call in browser.calls
+        if call["method"] not in {"get_current_page_observation", "get_current_page_screenshot"}
+    ]
+    assert action_methods == [
+        "navigate_to_search_results",
+        "inspect_product_page",
+        "select_product_variant",
+    ]
+
+    context = _context(client, session_id)
+    clarification = context["latest_clarification_request"]
+    assert clarification["kind"] == "VARIANT_PRECISION"
+    assert "required options" in clarification["prompt_to_user"].lower()
+    assert context["latest_page_understanding"]["page_type"] == "PRODUCT_DETAIL"
+    assert "option_selection_required" in context["latest_page_understanding"]["detected_page_hints"]
+
+    audit_logs = [entry for entry in _logs(client, session_id) if entry.get("tool_name") == "agent.audit"]
+    assert any("blocker=required_options" in (entry.get("tool_output_excerpt") or "") for entry in audit_logs)
+
 
 
 def test_demo_ambiguous_product_scenario_requests_clarification(scenario_env) -> None:
@@ -484,24 +639,7 @@ def test_demo_low_confidence_halt_scenario(scenario_env) -> None:
 def test_demo_recovery_path_scenario(scenario_env) -> None:
     client, browser, llm = scenario_env
     llm.queue_decisions([MultimodalDecision.REQUIRE_USER_CONFIRMATION])
-    browser.queue_observations(
-        [
-            {
-                "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
-                "page_title": "Build your own computer",
-                "detected_page_hints": ["product_detail", "option_selection_required"],
-                "notes": "modal interruption detected while parsing page",
-                "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
-            },
-            {
-                "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
-                "page_title": "Build your own computer",
-                "detected_page_hints": ["product_detail", "option_selection_required"],
-                "notes": "modal interruption detected while parsing page",
-                "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
-            },
-        ]
-    )
+    browser.queue_observations(_modal_recovery_observations())
     session_id = _create_session(client)
     step = _run_user_step(
         client,
@@ -513,12 +651,8 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
             "merchant": "demo.nopcommerce.com",
         },
     )
-    assert step["new_state"] in {
-        "SEARCHING_PRODUCTS",
-        "VIEWING_PRODUCT_DETAIL",
-        "ERROR_RECOVERY",
-        "CLARIFICATION_REQUIRED",
-    }
+    assert step["new_state"] == "ERROR_RECOVERY"
+    assert step["spoken_summary"] == "Recovery engaged on product_detail. Page indicates modal interruption signals."
 
     context = _context(client, session_id)
     assert context["latest_recovery_status"]["active"] is True
@@ -527,6 +661,10 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
         "PAGE_DESYNC",
         "NAVIGATION_RECOVERY",
     }
+    assert not any(call["method"] in {"add_to_cart", "perform_checkout"} for call in browser.calls)
+
+    audit_logs = [entry for entry in _logs(client, session_id) if entry.get("tool_name") == "agent.audit"]
+    assert any("recovery=MODAL_INTERRUPTION" in (entry.get("tool_output_excerpt") or "") for entry in audit_logs)
 
 
 def test_demo_layout_shift_recovery_scenario(scenario_env) -> None:

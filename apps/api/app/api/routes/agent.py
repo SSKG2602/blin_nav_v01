@@ -578,8 +578,6 @@ def _build_runtime_audit_log(
     output_excerpt: str | None,
     spoken_summary: str | None,
     low_confidence: bool,
-    error_type: str | None = None,
-    error_message: str | None = None,
 ) -> AgentLogEntry | None:
     if not input_excerpt and not output_excerpt and not spoken_summary:
         return None
@@ -594,8 +592,6 @@ def _build_runtime_audit_log(
         tool_output_excerpt=output_excerpt,
         low_confidence=low_confidence,
         user_spoken_summary=spoken_summary,
-        error_type=error_type,
-        error_message=error_message,
         created_at=datetime.utcnow(),
     )
 
@@ -936,16 +932,6 @@ def run_agent_step(
             output_excerpt=audit_output_excerpt,
             spoken_summary=spoken_summary,
             low_confidence=low_confidence_status.active,
-            error_type=(
-                recovery_status.recovery_kind.value
-                if recovery_status.active and recovery_status.recovery_kind is not None
-                else ("low_confidence" if low_confidence_status.active else None)
-            ),
-            error_message=(
-                recovery_status.reason
-                if recovery_status.active
-                else (low_confidence_status.reason if low_confidence_status.active else None)
-            ),
         )
         if runtime_audit_log is not None:
             append_agent_log(db, runtime_audit_log)

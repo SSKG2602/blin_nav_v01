@@ -241,7 +241,7 @@ def test_agent_step_updates_session_context_with_evidence(
     assert payload["latest_final_purchase_confirmation"] is not None
     assert payload["latest_post_purchase_summary"] is not None
     assert payload["latest_post_purchase_summary"]["spoken_summary"] == "Post-purchase confirmation is not visible yet."
-    assert payload["latest_spoken_summary"] == fake_llm_client.summary_text
+    assert payload["latest_spoken_summary"] == "Product verified: HTC One M8 Android L 5.0 Lollipop at $245.00."
     assert payload["latest_final_session_artifact"] is not None
     assert payload["latest_final_self_diagnosis"] is not None
 

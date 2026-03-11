@@ -155,22 +155,22 @@ class FakeBrowserRuntimeClient:
             if self.search_observation_override is not None:
                 return dict(self.search_observation_override)
             return {
-                "observed_url": "https://www.amazon.in/s?k=dog+food",
-                "page_title": "Amazon.in : dog food",
+                "observed_url": "https://demo.nopcommerce.com/search?q=htc",
+                "page_title": "Search",
                 "detected_page_hints": ["search_results"],
                 "product_candidates": [
                     {
-                        "title": "Dog treats combo pack",
-                        "price_text": "₹499",
-                        "url": "https://www.amazon.in/dp/B0BAD",
+                        "title": "Nokia Lumia 1020",
+                        "price_text": "$349.00",
+                        "url": "https://demo.nopcommerce.com/nokia-lumia-1020",
                     },
                     {
-                        "title": "Pedigree adult dog food 3kg",
-                        "price_text": "₹799",
-                        "url": "https://www.amazon.in/dp/B0GOOD",
+                        "title": "HTC One M8 Android L 5.0 Lollipop",
+                        "price_text": "$245.00",
+                        "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
                         "rating_text": "4.4 out of 5 stars",
-                        "review_count_text": "1234 ratings",
-                        "variant_text": "3kg",
+                        "review_count_text": "1234 reviews",
+                        "summary_text": "Android smartphone",
                     },
                 ],
             }
@@ -178,49 +178,51 @@ class FakeBrowserRuntimeClient:
             if self.product_observation_override is not None:
                 return dict(self.product_observation_override)
             return {
-                "observed_url": "https://www.amazon.in/dp/B0GOOD",
-                "page_title": "Pedigree adult dog food 3kg",
+                "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                "page_title": "HTC One M8 Android L 5.0 Lollipop",
                 "detected_page_hints": ["product_detail"],
                 "primary_product": {
-                    "title": "Pedigree adult dog food 3kg",
-                    "price_text": "₹799",
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "summary_text": "Android smartphone",
+                    "quantity_text": "Qty: 1",
                     "rating_text": "4.4 out of 5 stars",
-                    "review_count_text": "1234 ratings",
-                    "variant_text": "3kg",
+                    "review_count_text": "1234 reviews",
                 },
             }
         if self.stage == "cart":
             return {
-                "observed_url": "https://www.amazon.in/gp/cart/view.html",
-                "page_title": "Shopping Cart",
+                "observed_url": "https://demo.nopcommerce.com/cart",
+                "page_title": "Shopping cart",
                 "detected_page_hints": ["cart"],
                 "cart_item_count": 1,
                 "checkout_ready": True,
                 "cart_items": [
                     {
                         "item_id": "item-1",
-                        "title": "Pedigree adult dog food 3kg",
-                        "price_text": "₹799",
+                        "title": "HTC One M8 Android L 5.0 Lollipop",
+                        "price_text": "$245.00",
                         "quantity_text": "1",
                     }
                 ],
                 "primary_product": {
-                    "title": "Pedigree adult dog food 3kg",
-                    "price_text": "₹799",
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
                 },
             }
         if self.stage == "checkout":
             return {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout",
-                "detected_page_hints": ["checkout"],
+                "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+                "page_title": "Welcome, Please Sign In!",
+                "detected_page_hints": ["checkout", "guest_checkout_entry_visible"],
                 "checkout_ready": True,
                 "primary_product": {
-                    "title": "Pedigree adult dog food 3kg",
-                    "price_text": "₹799",
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
                 },
+                "notes": "guest_checkout_entry_visible",
             }
-        return {"observed_url": "https://www.amazon.in", "page_title": "Amazon.in"}
+        return {"observed_url": "https://demo.nopcommerce.com", "page_title": "nopCommerce demo store"}
 
     def get_current_page_screenshot(self, *, session_id: UUID) -> dict[str, Any]:
         return {}
@@ -317,7 +319,7 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
     testing_session_local,
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     session_uuid = UUID(session_id)
 
@@ -326,8 +328,8 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert response.status_code == 200
@@ -356,10 +358,13 @@ def test_agent_step_closes_happy_path_from_single_user_intent(
         "review_cart",
         "perform_checkout",
     ]
-    assert fake_browser_client.calls[0]["query"] == "dog food 3kg"
-    assert fake_browser_client.calls[0]["merchant"] == Merchant.AMAZON
-    assert fake_browser_client.calls[1]["candidate_url"] == "https://www.amazon.in/dp/B0GOOD"
-    assert fake_browser_client.calls[2]["size_hint"] == "3kg"
+    assert fake_browser_client.calls[0]["query"] == "htc phone"
+    assert fake_browser_client.calls[0]["merchant"] == Merchant.DEMO_STORE
+    assert (
+        fake_browser_client.calls[1]["candidate_url"]
+        == "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop"
+    )
+    assert fake_browser_client.calls[2]["size_hint"] is None
 
     with testing_session_local() as db:
         logs = list_agent_logs_for_session(db, session_uuid)
@@ -375,30 +380,28 @@ def test_agent_step_requests_product_selection_clarification_for_similar_candida
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
     fake_browser_client.search_observation_override = {
-        "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food",
-        "page_title": "Amazon.in : pedigree dog food",
+        "observed_url": "https://demo.nopcommerce.com/search?q=htc+one",
+        "page_title": "Search",
         "detected_page_hints": ["search_results"],
         "product_candidates": [
             {
-                "title": "Pedigree Puppy Dry Dog Food 3kg",
-                "price_text": "₹849",
-                "url": "https://www.amazon.in/dp/B0PUPPY",
+                "title": "HTC One Mini Blue",
+                "price_text": "$189.00",
+                "url": "https://demo.nopcommerce.com/htc-one-mini-blue",
                 "rating_text": "4.4 out of 5 stars",
-                "review_count_text": "812 ratings",
-                "brand_text": "Pedigree",
+                "review_count_text": "812 reviews",
             },
             {
-                "title": "Pedigree Adult Dry Dog Food 3kg",
-                "price_text": "₹799",
-                "url": "https://www.amazon.in/dp/B0ADULT",
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+                "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
                 "rating_text": "4.5 out of 5 stars",
-                "review_count_text": "1024 ratings",
-                "brand_text": "Pedigree",
+                "review_count_text": "1024 reviews",
             },
         ],
     }
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     response = client.post(
@@ -406,8 +409,8 @@ def test_agent_step_requests_product_selection_clarification_for_similar_candida
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc one",
+            "merchant": "demo.nopcommerce.com",
         },
     )
 
@@ -422,8 +425,8 @@ def test_agent_step_requests_product_selection_clarification_for_similar_candida
     assert len(clarification["candidate_options"]) == 2
     candidate_urls = {option["candidate_url"] for option in clarification["candidate_options"]}
     assert candidate_urls == {
-        "https://www.amazon.in/dp/B0ADULT",
-        "https://www.amazon.in/dp/B0PUPPY",
+        "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        "https://demo.nopcommerce.com/htc-one-mini-blue",
     }
     assert any(option.get("difference_summary") for option in clarification["candidate_options"])
 
@@ -433,29 +436,27 @@ def test_agent_step_approved_product_selection_opens_bound_candidate(
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
     fake_browser_client.search_observation_override = {
-        "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food",
-        "page_title": "Amazon.in : pedigree dog food",
+        "observed_url": "https://demo.nopcommerce.com/search?q=htc+one",
+        "page_title": "Search",
         "detected_page_hints": ["search_results"],
         "product_candidates": [
             {
-                "title": "Pedigree Adult Dry Dog Food 3kg",
-                "price_text": "₹799",
-                "url": "https://www.amazon.in/dp/B0ADULT",
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+                "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
                 "rating_text": "4.5 out of 5 stars",
-                "review_count_text": "1024 ratings",
-                "brand_text": "Pedigree",
+                "review_count_text": "1024 reviews",
             },
             {
-                "title": "Pedigree Puppy Dry Dog Food 3kg",
-                "price_text": "₹849",
-                "url": "https://www.amazon.in/dp/B0PUPPY",
+                "title": "HTC One Mini Blue",
+                "price_text": "$189.00",
+                "url": "https://demo.nopcommerce.com/htc-one-mini-blue",
                 "rating_text": "4.4 out of 5 stars",
-                "review_count_text": "812 ratings",
-                "brand_text": "Pedigree",
+                "review_count_text": "812 reviews",
             },
         ],
     }
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     first = client.post(
@@ -463,8 +464,8 @@ def test_agent_step_approved_product_selection_opens_bound_candidate(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc one",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert first.status_code == 200
@@ -479,12 +480,11 @@ def test_agent_step_approved_product_selection_opens_bound_candidate(
             "title": selected_option["title"],
             "price_text": selected_option["price_text"],
             "rating_text": "4.6 out of 5 stars",
-            "review_count_text": "1450 ratings",
-            "variant_text": "3kg",
-            "brand_text": "Pedigree",
+            "review_count_text": "1450 reviews",
+            "quantity_text": "Qty: 1",
             "review_snippets": [
-                "Dogs liked the food and the pack looked fresh.",
-                "Most buyers say the product quality feels consistent.",
+                "Battery life feels solid for a demo phone fixture.",
+                "Most buyers say the screen looks bright and clear.",
             ],
         },
     }
@@ -530,7 +530,7 @@ def test_agent_step_low_confidence_path(
     testing_session_local,
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     session_uuid = UUID(session_id)
 
@@ -563,7 +563,7 @@ def test_agent_step_tool_error_dispatches_runtime_recovery(
     testing_session_local,
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     session_uuid = UUID(session_id)
 

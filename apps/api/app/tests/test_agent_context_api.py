@@ -35,7 +35,14 @@ class FakeBrowserRuntimeClient:
     def navigate_to_search_results(self, *, session_id, query, merchant) -> None:
         return
 
-    def inspect_product_page(self, *, session_id, page_type) -> None:
+    def inspect_product_page(
+        self,
+        *,
+        session_id,
+        page_type,
+        candidate_url: str | None = None,
+        candidate_title: str | None = None,
+    ) -> None:
         return
 
     def verify_product_variant(
@@ -180,18 +187,20 @@ def test_agent_step_updates_session_context_with_evidence(
     fake_llm_client: FakeLLMClient,
 ) -> None:
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/dp/B0TESTSKU",
-        "page_title": "Pedigree Adult Dog Food 3kg",
+        "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        "page_title": "HTC One M8 Android L 5.0 Lollipop",
         "detected_page_hints": ["product_detail"],
         "primary_product": {
-            "title": "Pedigree Adult Dog Food 3kg",
-            "price_text": "₹799",
-            "availability_text": "In stock",
+            "title": "HTC One M8 Android L 5.0 Lollipop",
+            "price_text": "$245.00",
+            "summary_text": "Android smartphone",
+            "quantity_text": "Qty: 1",
+            "availability_text": "Add to cart available",
         },
     }
     fake_llm_client.summary_text = "This looks like a likely match. Please confirm before checkout."
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     step_response = client.post(
@@ -199,8 +208,8 @@ def test_agent_step_updates_session_context_with_evidence(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step_response.status_code == 200
@@ -239,22 +248,22 @@ def test_agent_step_persists_sensitive_checkpoint_when_required(
 ) -> None:
     fake_llm_client.multimodal_decision = MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-        "page_title": "Checkout",
-        "detected_page_hints": ["checkout"],
+        "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+        "page_title": "Welcome, Please Sign In!",
+        "detected_page_hints": ["checkout", "guest_checkout_entry_visible"],
         "checkout_ready": True,
-        "primary_product": {"title": "Pedigree Adult Dog Food 3kg", "price_text": "₹799"},
+        "primary_product": {"title": "HTC One M8 Android L 5.0 Lollipop", "price_text": "$245.00"},
     }
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     step_response = client.post(
         f"/api/sessions/{session_id}/agent/step",
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step_response.status_code == 200
@@ -285,20 +294,20 @@ def test_agent_step_persists_low_confidence_and_recovery_when_halt_required(
 ) -> None:
     fake_llm_client.multimodal_decision = MultimodalDecision.HALT_LOW_CONFIDENCE
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/unknown",
+        "observed_url": "https://demo.nopcommerce.com/unknown",
         "page_title": "Unknown",
         "detected_page_hints": ["unknown"],
     }
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
     step_response = client.post(
         f"/api/sessions/{session_id}/agent/step",
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step_response.status_code == 200
@@ -317,7 +326,7 @@ def test_agent_step_observation_failure_still_works(
 ) -> None:
     fake_browser_client.raise_observation_error = True
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     step_response = client.post(
@@ -325,8 +334,8 @@ def test_agent_step_observation_failure_still_works(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step_response.status_code == 200
@@ -346,15 +355,15 @@ def test_agent_step_llm_failure_still_persists_safe_context(
     fake_llm_client: FakeLLMClient,
 ) -> None:
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/dp/B0TESTSKU",
-        "page_title": "Pedigree Adult Dog Food 3kg",
+        "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        "page_title": "HTC One M8 Android L 5.0 Lollipop",
         "detected_page_hints": ["product_detail"],
-        "primary_product": {"title": "Pedigree Adult Dog Food 3kg", "price_text": "₹799"},
+        "primary_product": {"title": "HTC One M8 Android L 5.0 Lollipop", "price_text": "$245.00"},
     }
     fake_llm_client.raise_summary_error = True
     fake_llm_client.raise_multimodal_error = True
 
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     step_response = client.post(
@@ -362,8 +371,8 @@ def test_agent_step_llm_failure_still_persists_safe_context(
         json={
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step_response.status_code == 200
@@ -394,11 +403,11 @@ def test_runtime_observation_and_screenshot_proxy_routes(
     fake_browser_client: FakeBrowserRuntimeClient,
 ) -> None:
     fake_browser_client.observation_payload = {
-        "observed_url": "https://www.amazon.in/dp/B0TESTSKU",
+        "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
         "page_title": "Product detail",
         "detected_page_hints": ["product_detail"],
     }
-    created = client.post("/api/sessions", json={"merchant": "amazon.in"}).json()
+    created = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"}).json()
     session_id = created["session_id"]
 
     observation = client.get(f"/api/sessions/{session_id}/runtime/observation")

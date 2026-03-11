@@ -41,8 +41,21 @@ class ScenarioBrowserRuntimeClient:
     def navigate_to_search_results(self, *, session_id: UUID, query: str | None, merchant) -> None:
         self._record("navigate_to_search_results", session_id=session_id, query=query, merchant=merchant)
 
-    def inspect_product_page(self, *, session_id: UUID, page_type: str | None) -> None:
-        self._record("inspect_product_page", session_id=session_id, page_type=page_type)
+    def inspect_product_page(
+        self,
+        *,
+        session_id: UUID,
+        page_type: str | None,
+        candidate_url: str | None = None,
+        candidate_title: str | None = None,
+    ) -> None:
+        self._record(
+            "inspect_product_page",
+            session_id=session_id,
+            page_type=page_type,
+            candidate_url=candidate_url,
+            candidate_title=candidate_title,
+        )
 
     def verify_product_variant(
         self,
@@ -182,7 +195,7 @@ def scenario_env(testing_session_local):
 
 
 def _create_session(client: TestClient) -> str:
-    response = client.post("/api/sessions", json={"merchant": "amazon.in"})
+    response = client.post("/api/sessions", json={"merchant": "demo.nopcommerce.com"})
     assert response.status_code == 201
     return response.json()["session_id"]
 
@@ -199,96 +212,96 @@ def _context(client: TestClient, session_id: str) -> dict[str, Any]:
     return response.json()
 
 
-def test_demo_happy_path_scenario(scenario_env) -> None:
+def _happy_path_observations() -> list[dict[str, Any]]:
+    return [
+        {
+            "observed_url": "https://demo.nopcommerce.com",
+            "page_title": "nopCommerce demo store",
+            "detected_page_hints": ["home"],
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/search?q=htc",
+            "page_title": "Search",
+            "detected_page_hints": ["search_results"],
+            "product_candidates": [
+                {
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                    "summary_text": "Android smartphone",
+                }
+            ],
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+            "page_title": "HTC One M8 Android L 5.0 Lollipop",
+            "detected_page_hints": ["product_detail"],
+            "primary_product": {
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+                "summary_text": "Android smartphone",
+                "quantity_text": "Qty: 1",
+            },
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+            "page_title": "HTC One M8 Android L 5.0 Lollipop",
+            "detected_page_hints": ["product_detail"],
+            "primary_product": {
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+                "summary_text": "Android smartphone",
+                "quantity_text": "Qty: 1",
+            },
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/cart",
+            "page_title": "Shopping cart",
+            "detected_page_hints": ["cart"],
+            "cart_item_count": 1,
+            "checkout_ready": True,
+            "cart_items": [
+                {
+                    "item_id": "cart-item-1",
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "quantity_text": "1",
+                }
+            ],
+            "primary_product": {
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+            },
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+            "page_title": "Welcome, Please Sign In!",
+            "detected_page_hints": ["checkout", "guest_checkout_entry_visible"],
+            "checkout_ready": True,
+            "primary_product": {
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+            },
+            "notes": "guest_checkout_entry_visible",
+        },
+        {
+            "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+            "page_title": "Welcome, Please Sign In!",
+            "detected_page_hints": ["checkout", "guest_checkout_entry_visible"],
+            "checkout_ready": True,
+            "primary_product": {
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+            },
+            "notes": "guest_checkout_entry_visible",
+        },
+    ]
+
+
+def test_demo_happy_path_stops_at_guest_checkout_entry(scenario_env) -> None:
     client, browser, llm = scenario_env
     llm.queue_decisions([MultimodalDecision.PROCEED])
-    browser.queue_observations(
-        [
-            {
-                "observed_url": "https://www.amazon.in",
-                "page_title": "Amazon.in",
-                "detected_page_hints": ["home"],
-            },
-            {
-                "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food+3kg",
-                "page_title": "Results",
-                "detected_page_hints": ["search_results"],
-                "product_candidates": [
-                    {
-                        "title": "Pedigree dog food 3kg",
-                        "price_text": "₹799",
-                        "url": "https://www.amazon.in/dp/B0HAPPYCASE",
-                        "rating_text": "4.4 out of 5 stars",
-                        "review_count_text": "12,345 ratings",
-                        "variant_text": "3kg",
-                    }
-                ],
-            },
-            {
-                "observed_url": "https://www.amazon.in/dp/B0HAPPYCASE",
-                "page_title": "Pedigree dog food 3kg",
-                "detected_page_hints": ["product_detail"],
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                    "rating_text": "4.4 out of 5 stars",
-                    "review_count_text": "12,345 ratings",
-                    "variant_text": "3kg",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/dp/B0HAPPYCASE",
-                "page_title": "Pedigree dog food 3kg",
-                "detected_page_hints": ["product_detail"],
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                    "rating_text": "4.4 out of 5 stars",
-                    "review_count_text": "12,345 ratings",
-                    "variant_text": "3kg",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/cart/view.html",
-                "page_title": "Shopping Cart",
-                "detected_page_hints": ["cart"],
-                "cart_item_count": 1,
-                "checkout_ready": True,
-                "cart_items": [
-                    {
-                        "item_id": "cart-item-1",
-                        "title": "Pedigree dog food 3kg",
-                        "price_text": "₹799",
-                        "quantity_text": "1",
-                    }
-                ],
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-        ]
-    )
+    browser.queue_observations(_happy_path_observations())
 
     session_id = _create_session(client)
     step = _run_user_step(
@@ -297,8 +310,8 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     assert step["new_state"] == "FINAL_CONFIRMATION"
@@ -306,6 +319,7 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
 
     context = _context(client, session_id)
     assert context["latest_page_understanding"] is not None
+    assert context["latest_page_understanding"]["page_type"] == "CHECKOUT"
     assert context["latest_verification"] is not None
     assert context["latest_spoken_summary"] is not None
     assert context["latest_multimodal_assessment"]["decision"] == "PROCEED"
@@ -316,71 +330,55 @@ def test_demo_happy_path_scenario(scenario_env) -> None:
     assert context["latest_cart_snapshot"]["cart_item_count"] == 1
 
 
-def test_demo_ambiguous_product_scenario(scenario_env) -> None:
+def test_demo_ambiguous_product_scenario_requests_clarification(scenario_env) -> None:
     client, browser, llm = scenario_env
     llm.queue_decisions([MultimodalDecision.REQUIRE_USER_CONFIRMATION])
     browser.queue_observations(
         [
             {
-                "observed_url": "https://www.amazon.in/dp/B0AMBIGUOUS",
-                "page_title": "Dog treats combo",
-                "detected_page_hints": ["product_detail"],
-                "primary_product": {
-                    "title": "Dog treats combo",
-                    "price_text": "₹499",
-                    "rating_text": "4.0 out of 5 stars",
-                    "review_count_text": "23 ratings",
-                },
+                "observed_url": "https://demo.nopcommerce.com/search?q=htc+one",
+                "page_title": "Search",
+                "detected_page_hints": ["search_results"],
+                "product_candidates": [
+                    {
+                        "title": "HTC One Mini Blue",
+                        "price_text": "$189.00",
+                        "url": "https://demo.nopcommerce.com/htc-one-mini-blue",
+                    },
+                    {
+                        "title": "HTC One M8 Android L 5.0 Lollipop",
+                        "price_text": "$245.00",
+                        "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                    },
+                ],
             }
         ]
     )
 
     session_id = _create_session(client)
-    _run_user_step(
+    step = _run_user_step(
         client,
         session_id,
         {
             "event_type": "user_intent_parsed",
-            "intent": "dog food",
-            "merchant": "amazon.in",
+            "intent": "search_products",
+            "query": "htc one",
+            "merchant": "demo.nopcommerce.com",
         },
     )
-    context = _context(client, session_id)
 
-    assert context["latest_verification"] is not None
-    assert context["latest_verification"]["decision"] in {"PARTIAL_MATCH", "AMBIGUOUS"}
-    assert context["latest_multimodal_assessment"]["decision"] == "REQUIRE_USER_CONFIRMATION"
-    assert context["latest_multimodal_assessment"]["needs_user_confirmation"] is True
-    assert context["latest_multimodal_assessment"]["ambiguity_notes"]
+    assert step["new_state"] == "CLARIFICATION_REQUIRED"
+    context = _context(client, session_id)
+    clarification = context["latest_clarification_request"]
+    assert clarification["kind"] == "PRODUCT_SELECTION"
+    assert len(clarification["candidate_options"]) == 2
 
 
 def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> None:
     client, browser, llm = scenario_env
-    llm.queue_decisions(
-        [
-            MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
-            MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT,
-        ]
-    )
-    browser.queue_observations(
-        [
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout payment confirmation",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {"title": "Pedigree dog food 3kg", "price_text": "₹799"},
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout payment confirmation",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {"title": "Pedigree dog food 3kg", "price_text": "₹799"},
-            },
-        ]
-    )
+    llm.queue_decisions([MultimodalDecision.REQUIRE_SENSITIVE_CHECKPOINT])
 
+    browser.queue_observations(_happy_path_observations())
     approved_session = _create_session(client)
     _run_user_step(
         client,
@@ -388,8 +386,8 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
 
@@ -407,6 +405,7 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
     assert approved_context["latest_final_purchase_confirmation"]["required"] is True
     assert approved_context["latest_final_purchase_confirmation"]["confirmed"] is False
 
+    browser.queue_observations(_happy_path_observations())
     rejected_session = _create_session(client)
     _run_user_step(
         client,
@@ -414,8 +413,8 @@ def test_demo_sensitive_checkpoint_scenario_with_resolution(scenario_env) -> Non
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     resolve_no = client.post(
@@ -447,8 +446,8 @@ def test_demo_low_confidence_halt_scenario(scenario_env) -> None:
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food",
-            "merchant": "amazon.in",
+            "query": "htc phone",
+            "merchant": "demo.nopcommerce.com",
         },
     )
     context = _context(client, session_id)
@@ -462,11 +461,11 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
     browser.queue_observations(
         [
             {
-                "observed_url": "https://www.amazon.in/dp/B0RECOVERY",
-                "page_title": "Product page",
-                "detected_page_hints": ["product_detail"],
+                "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
+                "page_title": "Build your own computer",
+                "detected_page_hints": ["product_detail", "option_selection_required"],
                 "notes": "modal interruption detected while parsing page",
-                "primary_product": {"title": "Pedigree dog food 3kg", "price_text": "₹799"},
+                "primary_product": {"title": "Build your own computer", "price_text": "$1,200.00"},
             }
         ]
     )
@@ -477,11 +476,11 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
         {
             "event_type": "user_intent_parsed",
             "intent": "search_products",
-            "query": "dog food",
-            "merchant": "amazon.in",
+            "query": "computer",
+            "merchant": "demo.nopcommerce.com",
         },
     )
-    assert step["new_state"] in {"SEARCHING_PRODUCTS", "ERROR_RECOVERY"}
+    assert step["new_state"] in {"SEARCHING_PRODUCTS", "ERROR_RECOVERY", "CLARIFICATION_REQUIRED"}
 
     context = _context(client, session_id)
     assert context["latest_recovery_status"]["active"] is True
@@ -490,122 +489,3 @@ def test_demo_recovery_path_scenario(scenario_env) -> None:
         "PAGE_DESYNC",
         "NAVIGATION_RECOVERY",
     }
-
-
-def test_demo_post_purchase_summary_scenario(scenario_env) -> None:
-    client, browser, llm = scenario_env
-    llm.queue_decisions([MultimodalDecision.PROCEED])
-    browser.queue_observations(
-        [
-            {
-                "observed_url": "https://www.amazon.in",
-                "page_title": "Amazon.in",
-                "detected_page_hints": ["home"],
-            },
-            {
-                "observed_url": "https://www.amazon.in/s?k=pedigree+dog+food+3kg",
-                "page_title": "Results",
-                "detected_page_hints": ["search_results"],
-                "product_candidates": [
-                    {
-                        "title": "Pedigree dog food 3kg",
-                        "price_text": "₹799",
-                        "url": "https://www.amazon.in/dp/B0POSTPURCHASE",
-                        "variant_text": "3kg",
-                    }
-                ],
-            },
-            {
-                "observed_url": "https://www.amazon.in/dp/B0POSTPURCHASE",
-                "page_title": "Pedigree dog food 3kg",
-                "detected_page_hints": ["product_detail"],
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/dp/B0POSTPURCHASE",
-                "page_title": "Pedigree dog food 3kg",
-                "detected_page_hints": ["product_detail"],
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/cart/view.html",
-                "page_title": "Shopping Cart",
-                "detected_page_hints": ["cart"],
-                "cart_item_count": 1,
-                "checkout_ready": True,
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/gp/buy/spc/handlers/display.html",
-                "page_title": "Checkout",
-                "detected_page_hints": ["checkout"],
-                "checkout_ready": True,
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-            },
-            {
-                "observed_url": "https://www.amazon.in/order-confirmation",
-                "page_title": "Thank you, your order has been placed",
-                "detected_page_hints": ["checkout"],
-                "delivery_window_text": "Delivery by Monday",
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-                "notes": "order_confirmation_detected",
-            },
-            {
-                "observed_url": "https://www.amazon.in/order-confirmation",
-                "page_title": "Thank you, your order has been placed",
-                "detected_page_hints": ["checkout"],
-                "delivery_window_text": "Delivery by Monday",
-                "primary_product": {
-                    "title": "Pedigree dog food 3kg",
-                    "price_text": "₹799",
-                },
-                "notes": "order_confirmation_detected",
-            }
-        ]
-    )
-    session_id = _create_session(client)
-    step = _run_user_step(
-        client,
-        session_id,
-        {
-            "event_type": "user_intent_parsed",
-            "intent": "search_products",
-            "query": "pedigree dog food 3kg",
-            "merchant": "amazon.in",
-        },
-    )
-    assert step["new_state"] == "FINAL_CONFIRMATION"
-    resolve = client.post(
-        f"/api/sessions/{session_id}/final-confirmation/resolve",
-        json={"approved": True, "resolution_notes": "approved in post-purchase scenario"},
-    )
-    assert resolve.status_code == 200
-    context = _context(client, session_id)
-    assert context["latest_post_purchase_summary"] is not None
-    assert "order appears placed" in context["latest_post_purchase_summary"]["spoken_summary"].lower()
-    assert context["latest_post_purchase_summary"]["order_item_title"] == "Pedigree dog food 3kg"

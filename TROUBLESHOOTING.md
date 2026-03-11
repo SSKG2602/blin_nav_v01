@@ -98,6 +98,27 @@ Check:
 - the `Browser Activity` panel is updating after session start
 - the runtime observation route is returning a current URL instead of repeated navigation placeholders
 
+## Add-to-cart is blocked on a product page
+
+Check:
+
+- the page is a supported nopCommerce product detail page, not a listing card or login surface
+- the product does not require unresolved attribute selection such as `Processor *` or `RAM *`
+- the quantity input does not advertise a minimum quantity above `1`
+- the runtime reported a real success signal such as a cart badge increase or success notification
+
+If the runtime reports `option_selection_required` or `minimum_quantity_required`, the halt is intentional in Phase 2.
+
+## Checkout stops at sign-in or guest entry
+
+Check:
+
+- the cart page exposes the `Checkout` control and, if present, the terms-of-service checkbox
+- the runtime reached `demo.nopcommerce.com/login/checkoutasguest` or an equivalent guest/sign-in entry page
+- the demo is not being described as full checkout automation
+
+Phase 2 only recognizes and verifies checkout entry. Address entry, payment, and order placement remain deferred.
+
 ## Order cancellation is unavailable
 
 Check:

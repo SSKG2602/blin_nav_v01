@@ -7,6 +7,8 @@ class RuntimeProductCandidate(BaseModel):
     title: str | None = None
     price_text: str | None = None
     url: str | None = None
+    summary_text: str | None = None
+    quantity_text: str | None = None
     rating_text: str | None = None
     review_count_text: str | None = None
     availability_text: str | None = None

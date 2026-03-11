@@ -12,15 +12,19 @@ if str(RUNTIME_ROOT) not in sys.path:
 from browser_runtime.automation.helpers import (
     action_guard,
     add_current_product_to_cart,
+    attempt_checkout_entry,
     choose_best_product_candidate,
     classify_page_state,
+    collect_search_result_candidates,
     collect_semantic_page_signals,
     detect_access_denied,
+    detect_checkout_entry_readiness,
     dismiss_common_interruptions,
     extract_cart_evidence,
     extract_product_detail_evidence,
     recover_to_stable_page,
     select_variant_option,
+    submit_search_query,
 )
 
 
@@ -63,17 +67,57 @@ class FakeLocator:
             return False
         return bool(self._entries[0].get("visible", False))
 
+    def is_checked(self) -> bool:
+        if not self._entries:
+            return False
+        attrs = self._entries[0].get("attrs", {})
+        if isinstance(attrs, dict) and attrs.get("checked") is not None:
+            return bool(attrs.get("checked"))
+        return bool(self._entries[0].get("checked", False))
+
     def click(self, timeout: int | None = None) -> None:
-        if self._entries:
-            self._entries[0]["clicked"] = True
+        if not self._entries:
+            return
+        entry = self._entries[0]
+        entry["clicked"] = True
+        attrs = entry.setdefault("attrs", {})
+        if attrs.get("type") in {"checkbox", "radio"}:
+            attrs["checked"] = True
+        on_click = entry.get("on_click")
+        if callable(on_click):
+            on_click()
 
     def fill(self, value: str, timeout: int | None = None) -> None:
         if self._entries:
             self._entries[0]["filled"] = value
+            self._entries[0].setdefault("attrs", {})["value"] = value
 
     def press(self, key: str) -> None:
         if self._entries:
             self._entries[0]["pressed"] = key
+            on_press = self._entries[0].get("on_press")
+            if callable(on_press):
+                on_press(key)
+
+    def select_option(self, value: str) -> None:
+        if not self._entries:
+            raise RuntimeError("no option control")
+        entry = self._entries[0]
+        entry["selected_option"] = value
+        entry.setdefault("attrs", {})["value"] = value
+        nested = entry.setdefault("nested", {})
+        options = nested.get("option", [])
+        selected_options: list[dict[str, Any]] = []
+        for option in options:
+            attrs = option.setdefault("attrs", {})
+            if str(attrs.get("value")) == str(value) or option.get("text") == value:
+                attrs["selected"] = "selected"
+                selected_options = [option]
+            else:
+                attrs.pop("selected", None)
+        if selected_options:
+            nested["option:checked"] = selected_options
+            nested["option[selected]"] = selected_options
 
     def locator(self, selector: str) -> FakeLocator:
         if not self._entries:
@@ -117,71 +161,408 @@ class FakePage:
             raise RuntimeError("goto failed")
         self.url = url
 
+    def wait_for_load_state(self, state: str = "domcontentloaded", timeout: int = 10000) -> None:
+        return None
 
-def test_choose_best_product_candidate_prefers_non_junk_dp_link() -> None:
+    def wait_for_selector(self, selector: str, timeout: int = 4000) -> None:
+        if selector not in self._selectors:
+            raise RuntimeError("selector unavailable")
+
+
+def test_choose_best_product_candidate_prefers_real_nopcommerce_product_slug() -> None:
     candidates = [
         {
-            "title": "Sponsored listing",
-            "url": "https://demo.nopcommerce.com/help/sponsored",
-            "price_text": "₹499",
+            "title": "Help",
+            "url": "https://demo.nopcommerce.com/help",
+            "price_text": None,
         },
         {
-            "title": "Pedigree Adult Dry Dog Food 3kg",
-            "url": "https://demo.nopcommerce.com/pd/pedigree-adult-dry-dog-food-3kg",
-            "price_text": "₹899",
+            "title": "Cell phones",
+            "url": "https://demo.nopcommerce.com/cell-phones",
+            "price_text": None,
+        },
+        {
+            "title": "HTC One M8 Android L 5.0 Lollipop",
+            "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+            "price_text": "$245.00",
         },
     ]
 
-    chosen = choose_best_product_candidate(candidates)
+    chosen = choose_best_product_candidate(candidates, query="htc android phone")
 
     assert chosen is not None
-    assert chosen["url"] == "https://demo.nopcommerce.com/pd/pedigree-adult-dry-dog-food-3kg"
+    assert chosen["url"] == "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop"
 
 
-def test_extract_product_detail_evidence_handles_complete_and_partial_fields() -> None:
-    page = FakePage(
-        url="https://demo.nopcommerce.com/build-your-own-computer",
-        title="Pedigree Product",
+def test_classify_page_state_recognizes_nopcommerce_surfaces() -> None:
+    home = FakePage(
+        url="https://demo.nopcommerce.com/",
+        title="nopCommerce demo store",
         selectors={
-            "h1.product-name": [{"text": "Pedigree Adult Dry Dog Food"}],
-            "span[class*='Pricing']": [{"text": "₹899.00"}],
-            "button[class*='AddToCart']": [{"text": "Add to cart"}],
-            "span[class*='Rating']": [{"text": "4.3 out of 5 stars"}],
-            "span[class*='ReviewCount']": [{"text": "12,345 ratings"}],
-            "span[class*='Brand']": [{"text": "Brand: Pedigree"}],
+            ".home-page": [{"visible": True}],
+            "body": [{"text": "Welcome to our store", "visible": True}],
+        },
+    )
+    listing = FakePage(
+        url="https://demo.nopcommerce.com/cell-phones",
+        title="Cell phones",
+        selectors={
+            ".product-grid .item-box": [{"visible": True}],
+            "body": [{"text": "Cell phones HTC Nokia", "visible": True}],
+        },
+    )
+    product = FakePage(
+        url="https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        title="HTC One M8 Android L 5.0 Lollipop",
+        selectors={
+            "div.product-essential": [{"visible": True}],
+            "button[id^='add-to-cart-button-']": [{"visible": True, "text": "Add to cart"}],
+        },
+    )
+    cart = FakePage(
+        url="https://demo.nopcommerce.com/cart",
+        title="Shopping cart",
+        selectors={
+            ".shopping-cart-page": [{"visible": True}],
+            "#checkout": [{"visible": True, "text": "Checkout"}],
+        },
+    )
+    checkout = FakePage(
+        url="https://demo.nopcommerce.com/login/checkoutasguest",
+        title="Welcome, Please Sign In!",
+        selectors={
+            ".checkout-as-guest-button": [{"visible": True, "text": "Checkout as Guest"}],
+        },
+    )
+
+    assert classify_page_state(home) == "home"
+    assert classify_page_state(listing) == "search_results"
+    assert classify_page_state(product) == "product"
+    assert classify_page_state(cart) == "cart"
+    assert classify_page_state(checkout) == "checkout"
+
+
+def test_submit_search_query_uses_small_searchterms_and_button() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/",
+        selectors={
+            "#small-searchterms": [{"visible": True}],
+            "button.search-box-button": [
+                {
+                    "visible": True,
+                    "text": "Search",
+                    "on_click": lambda: setattr(
+                        page,
+                        "url",
+                        "https://demo.nopcommerce.com/search?q=htc",
+                    ),
+                }
+            ],
+            ".home-page": [{"visible": True}],
+            "body": [{"text": "Welcome to our store", "visible": True}],
+        },
+    )
+
+    submitted, notes = submit_search_query(page, "htc")
+
+    assert submitted is True
+    assert notes == []
+    assert page.locator("#small-searchterms").first.get_attribute("value") == "htc"
+    assert page.url.endswith("/search?q=htc")
+
+
+def test_collect_search_result_candidates_reads_nopcommerce_cards() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/search?q=htc",
+        title="Search",
+        selectors={
+            ".item-grid .item-box": [
+                {
+                    "visible": True,
+                    "nested": {
+                        ".product-title a": {
+                            "text": "HTC One M8 Android L 5.0 Lollipop",
+                            "attrs": {"href": "/htc-one-m8-android-l-50-lollipop"},
+                        },
+                        ".prices .actual-price": {"text": "$245.00"},
+                        ".description": {"text": "HTC's latest smartphone for Android lovers."},
+                        ".add-to-cart-button": {"text": "Add to cart"},
+                    },
+                },
+                {
+                    "visible": True,
+                    "nested": {
+                        ".product-title a": {
+                            "text": "Nokia Lumia 1020",
+                            "attrs": {"href": "/nokia-lumia-1020"},
+                        },
+                        ".prices .actual-price": {"text": "$349.00"},
+                    },
+                },
+            ]
+        },
+    )
+
+    candidates = collect_search_result_candidates(page, limit=4)
+
+    assert len(candidates) == 2
+    assert candidates[0]["title"] == "HTC One M8 Android L 5.0 Lollipop"
+    assert candidates[0]["url"] == "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop"
+    assert candidates[0]["summary_text"] == "HTC's latest smartphone for Android lovers."
+    assert candidates[0]["availability_text"] == "Add to cart"
+
+
+def test_extract_product_detail_evidence_for_simple_nopcommerce_product() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        title="HTC One M8 Android L 5.0 Lollipop",
+        selectors={
+            "div.product-name h1": [{"text": "HTC One M8 Android L 5.0 Lollipop", "visible": True}],
+            ".prices .actual-price": [{"text": "$245.00", "visible": True}],
+            ".overview .short-description": [
+                {"text": "A lightweight Android handset with a bright screen.", "visible": True}
+            ],
+            "input[id*='EnteredQuantity']": [{"visible": True, "attrs": {"value": "1", "min": "1"}}],
+            "button[id^='add-to-cart-button-']": [{"visible": True, "text": "Add to cart"}],
         },
     )
 
     evidence = extract_product_detail_evidence(page)
-    assert evidence["title"] == "Pedigree Adult Dry Dog Food"
-    assert evidence["price_text"] == "₹899.00"
-    assert evidence["availability_text"] == "In stock"
+
+    assert evidence["title"] == "HTC One M8 Android L 5.0 Lollipop"
+    assert evidence["price_text"] == "$245.00"
+    assert evidence["summary_text"] == "A lightweight Android handset with a bright screen."
+    assert evidence["quantity_text"] == "Qty: 1"
+    assert evidence["availability_text"] == "Add to cart"
+    assert evidence["blocker_hints"] == []
     assert evidence["notes"] is None
 
-    partial_page = FakePage(
+
+def test_extract_product_detail_evidence_flags_required_options() -> None:
+    page = FakePage(
         url="https://demo.nopcommerce.com/build-your-own-computer",
-        title="Unknown Product",
-        selectors={"h1.product-name": [{"text": "Unknown Product"}]},
+        title="Build your own computer",
+        selectors={
+            "div.product-name h1": [{"text": "Build your own computer", "visible": True}],
+            ".prices .actual-price": [{"text": "$1,200.00", "visible": True}],
+            ".attributes label.text-prompt": [{"text": "Processor *", "visible": True}],
+            "select[id^='product_attribute_']": [
+                {
+                    "visible": True,
+                    "attrs": {"value": "0"},
+                    "nested": {
+                        "option": [
+                            {"text": "Please select", "attrs": {"value": "0", "selected": "selected"}},
+                            {"text": "2.2 GHz Intel Pentium Dual-Core E2200", "attrs": {"value": "1"}},
+                        ],
+                        "option:checked": [
+                            {"text": "Please select", "attrs": {"value": "0", "selected": "selected"}}
+                        ],
+                        "option[selected]": [
+                            {"text": "Please select", "attrs": {"value": "0", "selected": "selected"}}
+                        ],
+                    },
+                }
+            ],
+            "button[id^='add-to-cart-button-']": [{"visible": True, "text": "Add to cart"}],
+        },
     )
-    partial_evidence = extract_product_detail_evidence(partial_page)
-    assert partial_evidence["title"] == "Unknown Product"
-    assert partial_evidence["price_text"] is None
-    assert "price_missing" in (partial_evidence["notes"] or "")
+
+    evidence = extract_product_detail_evidence(page)
+
+    assert "option_selection_required" in evidence["blocker_hints"]
+    assert "required_options:Processor *" in (evidence["notes"] or "")
 
 
-def test_extract_cart_evidence_returns_count_and_checkout_ready() -> None:
+def test_select_variant_option_supports_select_controls_and_duplicate_guard() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    page = FakePage(
+        url="https://demo.nopcommerce.com/build-your-own-computer",
+        selectors={
+            "select[id^='product_attribute_']": [
+                {
+                    "visible": True,
+                    "attrs": {"value": "0"},
+                    "nested": {
+                        "option": [
+                            {"text": "Please select", "attrs": {"value": "0"}},
+                            {"text": "320 GB", "attrs": {"value": "4"}},
+                        ]
+                    },
+                }
+            ]
+        },
+    )
+
+    selected, notes, signature = select_variant_option(
+        page,
+        session_id=session_id,
+        variant_hint="320 GB",
+    )
+    assert selected is True
+    assert signature == "320 gb"
+    assert any("variant_selected:select" in note for note in notes)
+
+    selected_again, notes_again, _ = select_variant_option(
+        page,
+        session_id=session_id,
+        variant_hint="320 GB",
+    )
+    assert selected_again is True
+    assert "duplicate_variant_selection_skipped" in notes_again
+
+
+def test_add_to_cart_verifies_with_notification_and_duplicate_guard() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    page = FakePage(
+        url="https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+        selectors={
+            "div.product-essential": [{"visible": True}],
+            "div.product-name h1": [{"text": "HTC One M8 Android L 5.0 Lollipop", "visible": True}],
+            ".prices .actual-price": [{"text": "$245.00", "visible": True}],
+            "input[id*='EnteredQuantity']": [{"visible": True, "attrs": {"value": "1", "min": "1"}}],
+            "#topcartlink .cart-qty": [{"text": "(0)", "visible": True}],
+            "button[id^='add-to-cart-button-']": [
+                {
+                    "visible": True,
+                    "text": "Add to cart",
+                    "on_click": lambda: page._selectors.update(
+                        {
+                            ".bar-notification.success .content": [
+                                {
+                                    "visible": True,
+                                    "text": "The product has been added to your shopping cart",
+                                }
+                            ],
+                            "#topcartlink .cart-qty": [{"text": "(1)", "visible": True}],
+                        }
+                    ),
+                }
+            ],
+        },
+    )
+
+    added, notes = add_current_product_to_cart(page, session_id=session_id)
+    assert added is True
+    assert "success_notification_visible" in notes
+    assert any("add_to_cart_verified" in note for note in notes)
+
+    added_again, notes_again = add_current_product_to_cart(page, session_id=session_id)
+    assert added_again is True
+    assert "duplicate_add_to_cart_skipped" in notes_again
+
+
+def test_add_to_cart_blocks_minimum_quantity_product() -> None:
+    action_guard.clear()
+    session_id = uuid4()
+    page = FakePage(
+        url="https://demo.nopcommerce.com/sample-product",
+        selectors={
+            "div.product-essential": [{"visible": True}],
+            "div.product-name h1": [{"text": "Sample product", "visible": True}],
+            ".prices .actual-price": [{"text": "$19.00", "visible": True}],
+            "input[id*='EnteredQuantity']": [{"visible": True, "attrs": {"value": "1", "min": "2"}}],
+            "button[id^='add-to-cart-button-']": [{"visible": True, "text": "Add to cart"}],
+        },
+    )
+
+    added, notes = add_current_product_to_cart(page, session_id=session_id)
+
+    assert added is False
+    assert "minimum_quantity_required" in notes
+
+
+def test_extract_cart_evidence_reads_rows_and_checkout_readiness() -> None:
     page = FakePage(
         url="https://demo.nopcommerce.com/cart",
+        title="Shopping cart",
         selectors={
-            "span[class*='ItemCount']": [{"text": "2"}],
-            "a[href*='checkout']": [{"visible": True}],
+            "#topcartlink .cart-qty": [{"text": "(1)", "visible": True}],
+            "tr.cart-item-row": [
+                {
+                    "attrs": {"data-item-id": "item-1"},
+                    "nested": {
+                        "td.product a": {
+                            "text": "HTC One M8 Android L 5.0 Lollipop",
+                            "attrs": {"href": "/htc-one-m8-android-l-50-lollipop"},
+                        },
+                        "td.subtotal span": {"text": "$245.00"},
+                        "input.qty-input": {"attrs": {"value": "1"}},
+                        ".attributes": {"text": "Color: Silver"},
+                    },
+                }
+            ],
+            "#checkout": [{"visible": True, "text": "Checkout"}],
+            "#termsofservice": [{"visible": True, "attrs": {"type": "checkbox"}}],
+            ".cart-total .value-summary strong": [{"text": "$245.00", "visible": True}],
         },
     )
 
     evidence = extract_cart_evidence(page)
 
-    assert evidence["cart_item_count"] == 2
+    assert evidence["cart_item_count"] == 1
     assert evidence["checkout_ready"] is True
+    assert evidence["cart_items"][0]["title"] == "HTC One M8 Android L 5.0 Lollipop"
+    assert evidence["cart_items"][0]["quantity_text"] == "1"
+    assert "terms_of_service_required" in (evidence["notes"] or [])
+    assert "cart_total_visible:$245.00" in (evidence["notes"] or [])
+
+
+def test_attempt_checkout_entry_checks_terms_and_stops_at_guest_entry() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/cart",
+        title="Shopping cart",
+        selectors={
+            ".shopping-cart-page": [{"visible": True}],
+            "#termsofservice": [{"visible": True, "attrs": {"type": "checkbox"}}],
+            "#checkout": [
+                {
+                    "visible": True,
+                    "text": "Checkout",
+                    "on_click": lambda: (
+                        setattr(page, "url", "https://demo.nopcommerce.com/login/checkoutasguest"),
+                        page._selectors.update(
+                            {
+                                ".checkout-as-guest-button": [
+                                    {"visible": True, "text": "Checkout as Guest"}
+                                ],
+                                "body": [
+                                    {
+                                        "visible": True,
+                                        "text": "Welcome, please sign in or checkout as guest",
+                                    }
+                                ],
+                            }
+                        ),
+                    ),
+                }
+            ],
+        },
+    )
+
+    initiated, notes = attempt_checkout_entry(page)
+
+    assert initiated is True
+    assert "terms_of_service_checked" in notes
+    assert "guest_checkout_entry_visible" in notes
+    assert page.url.endswith("/login/checkoutasguest")
+
+
+def test_detect_checkout_entry_readiness_reports_cart_empty() -> None:
+    page = FakePage(
+        url="https://demo.nopcommerce.com/cart",
+        title="Shopping cart",
+        selectors={
+            "body": [{"text": "Your shopping cart is empty!", "visible": True}],
+        },
+    )
+
+    ready, notes = detect_checkout_entry_readiness(page)
+
+    assert ready is False
+    assert "cart_empty" in notes
 
 
 def test_dismiss_common_interruptions_fails_safely() -> None:
@@ -190,16 +571,16 @@ def test_dismiss_common_interruptions_fails_safely() -> None:
     assert notes == []
 
 
-def test_collect_semantic_page_signals_detects_checkpoint_and_structure_anchors() -> None:
+def test_collect_semantic_page_signals_detects_nopcommerce_anchors() -> None:
     page = FakePage(
-        url="https://demo.nopcommerce.com/checkout",
+        url="https://demo.nopcommerce.com/cart",
         selectors={
             "input[name*='captcha']": [{"visible": True}],
             "input[name*='otp']": [{"visible": True}],
             "input[name*='cvv']": [{"visible": True}],
-            "h1.product-name": [{"visible": True}],
-            "div[class*='BasketItem']": [{"visible": True}],
-            "button[class*='Checkout']": [{"visible": True}],
+            "div.product-essential": [{"visible": True}],
+            ".shopping-cart-page": [{"visible": True}],
+            "#checkout": [{"visible": True}],
         },
     )
 
@@ -223,7 +604,8 @@ def test_detect_access_denied_uses_title_and_body_markers() -> None:
                     "text": (
                         "You don't have permission to access \"http://demo.nopcommerce.com/\" "
                         "on this server. Reference #18.6518d017 https://errors.edgesuite.net/"
-                    )
+                    ),
+                    "visible": True,
                 }
             ]
         },
@@ -233,37 +615,26 @@ def test_detect_access_denied_uses_title_and_body_markers() -> None:
     assert classify_page_state(page) == "unknown"
 
 
-def test_classify_page_state_keeps_normal_demo_store_home() -> None:
-    page = FakePage(
-        url="https://demo.nopcommerce.com/",
-        title="nopCommerce demo store",
-        selectors={"body": [{"text": "Welcome to the nopCommerce demo store"}]},
-    )
-
-    assert detect_access_denied(page) is False
-    assert classify_page_state(page) == "home"
-
-
 def test_duplicate_search_guard_skips_immediate_repeat() -> None:
     action_guard.clear()
     session_id = uuid4()
-    first_url = "https://demo.nopcommerce.com/search?q=dog+food"
+    first_url = "https://demo.nopcommerce.com/search?q=htc+phone"
 
     assert action_guard.should_skip_duplicate_search(
         session_id,
-        query="dog food",
+        query="htc phone",
         current_url=first_url,
     ) is False
 
-    action_guard.record_search(session_id, query="dog food", current_url=first_url)
+    action_guard.record_search(session_id, query="htc phone", current_url=first_url)
     assert action_guard.should_skip_duplicate_search(
         session_id,
-        query="dog food",
+        query="htc phone",
         current_url=first_url,
     ) is True
     assert action_guard.should_skip_duplicate_search(
         session_id,
-        query="cat food",
+        query="nokia phone",
         current_url=first_url,
     ) is False
 
@@ -280,76 +651,3 @@ def test_recovery_helper_returns_stable_shape() -> None:
     failure = recover_to_stable_page(failing_page, preferred="home")
     assert set(failure.keys()) == {"target", "success", "landed_url", "notes"}
     assert failure["success"] is False
-
-
-def test_select_variant_option_matches_hint_and_records_guard() -> None:
-    action_guard.clear()
-    session_id = uuid4()
-    page = FakePage(
-        url="https://demo.nopcommerce.com/build-your-own-computer",
-        selectors={
-            "button[class*='Variant']": [
-                {"text": "1kg", "visible": True},
-                {"text": "3kg", "visible": True},
-            ],
-        },
-    )
-
-    selected, notes, signature = select_variant_option(
-        page,
-        session_id=session_id,
-        variant_hint="3kg",
-    )
-    assert selected is True
-    assert signature == "3kg"
-    assert any("variant_selected" in note for note in notes)
-
-    selected_again, notes_again, _ = select_variant_option(
-        page,
-        session_id=session_id,
-        variant_hint="3kg",
-    )
-    assert selected_again is True
-    assert "duplicate_variant_selection_skipped" in notes_again
-
-
-def test_add_to_cart_duplicate_guard_skips_repeat() -> None:
-    action_guard.clear()
-    session_id = uuid4()
-    page = FakePage(
-        url="https://demo.nopcommerce.com/build-your-own-computer",
-        selectors={
-            "button[class*='AddToCart']": [{"visible": True, "text": "Add to cart"}],
-            "div[class*='QuantityControl']": [{"visible": True}],
-        },
-    )
-
-    added, notes = add_current_product_to_cart(page, session_id=session_id)
-    assert added is True
-    assert any("add_to_cart_verified" in note for note in notes)
-
-    added_again, notes_again = add_current_product_to_cart(page, session_id=session_id)
-    assert added_again is True
-    assert "duplicate_add_to_cart_skipped" in notes_again
-
-
-def test_duplicate_checkout_guard_skips_repeat_attempts() -> None:
-    action_guard.clear()
-    session_id = uuid4()
-    current_url = "https://demo.nopcommerce.com/cart"
-
-    assert (
-        action_guard.should_skip_duplicate_checkout_attempt(
-            session_id,
-            current_url=current_url,
-        )
-        is False
-    )
-    action_guard.record_checkout_attempt(session_id, current_url=current_url)
-    assert (
-        action_guard.should_skip_duplicate_checkout_attempt(
-            session_id,
-            current_url=current_url,
-        )
-        is True
-    )

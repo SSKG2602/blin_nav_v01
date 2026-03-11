@@ -42,7 +42,7 @@ def test_http_browser_runtime_observation_success(monkeypatch: pytest.MonkeyPatc
             return _FakeResponse(
                 status_code=200,
                 payload={
-                    "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+                    "observed_url": "https://demo.nopcommerce.com/search?q=htc",
                     "page_title": "Search",
                     "detected_page_hints": ["search_results"],
                     "product_candidates": [],
@@ -207,11 +207,15 @@ def test_http_browser_runtime_screenshot_failure_returns_empty_dict(
 def test_build_page_understanding_from_browser_observation() -> None:
     understanding = build_page_understanding_from_browser_observation(
         {
-            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+            "observed_url": "https://demo.nopcommerce.com/search?q=htc",
             "page_title": "Search results",
             "detected_page_hints": ["search_results"],
             "product_candidates": [
-                {"title": "Pedigree Adult Dog Food", "price_text": "₹799"},
+                {
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "summary_text": "Android smartphone",
+                },
             ],
         }
     )
@@ -219,6 +223,7 @@ def test_build_page_understanding_from_browser_observation() -> None:
     assert understanding.page_type == PageType.SEARCH_RESULTS
     assert len(understanding.product_candidates) == 1
     assert understanding.primary_product is not None
+    assert understanding.primary_product.summary_text == "Android smartphone"
 
 
 def test_build_page_understanding_from_blocked_browser_observation() -> None:
@@ -279,7 +284,7 @@ def test_capture_page_understanding_hybrid_invokes_visual_fallback_on_weak_evide
             self.called = True
             return {
                 "page_type": "PRODUCT_DETAIL",
-                "primary_product": {"title": "Pedigree Dog Food", "price_text": "₹799"},
+                "primary_product": {"title": "HTC One M8 Android L 5.0 Lollipop", "price_text": "$245.00"},
                 "notes": "visual fallback applied",
             }
 

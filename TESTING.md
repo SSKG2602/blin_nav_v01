@@ -56,6 +56,10 @@ The backend suite includes coverage for:
 
 The browser-runtime suite covers the runtime service and helper behavior, including:
 
+- nopCommerce page classification for home, listing/search, product, cart, and guest-checkout entry
+- search submission and listing candidate extraction
+- product detail extraction, configurable-option blocking, and bounded add-to-cart verification
+- cart extraction and checkout-entry recognition
 - observation extraction
 - screenshot capture surfaces
 - merchant interaction helpers
@@ -77,8 +81,10 @@ After automated tests pass, run a manual local smoke pass through the operator s
 9. confirm the `Browser Activity` panel shows screenshot thumbnail, current URL, and status text
 10. verify clarification, checkpoint, or final-confirmation surfaces if triggered
 11. verify the live runtime lands on `demo.nopcommerce.com` without any merchant connect step
-12. verify cart controls, latest-order loading, and bounded order cancellation when the flow makes them relevant
-13. verify session history, closure artifacts, and post-purchase summary visibility
+12. verify search submits through the live nopCommerce search box and that search results are read back coherently
+13. verify supported simple products can reach cart review, and configurable products halt with an explicit option-required note
+14. verify the bounded flow can recognize the cart checkout button and stop honestly at guest-checkout entry instead of pretending to place an order
+15. verify session history, closure artifacts, and confirmation visibility
 
 ## What must be preserved
 

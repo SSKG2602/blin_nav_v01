@@ -73,6 +73,8 @@ def _build_primary_from_detail(detail: dict[str, Any]) -> dict[str, Any] | None:
         title=detail.get("title"),
         price_text=detail.get("price_text"),
         url=detail.get("url"),
+        summary_text=detail.get("summary_text"),
+        quantity_text=detail.get("quantity_text"),
         rating_text=detail.get("rating_text"),
         review_count_text=detail.get("review_count_text"),
         availability_text=detail.get("availability_text"),
@@ -85,6 +87,8 @@ def _build_primary_from_detail(detail: dict[str, Any]) -> dict[str, Any] | None:
         "title",
         "price_text",
         "url",
+        "summary_text",
+        "quantity_text",
         "rating_text",
         "review_count_text",
         "availability_text",
@@ -229,11 +233,15 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
             cart_item_count=None,
             checkout_ready=None,
         )
+        notes = None
+        if not product_candidates:
+            notes = "No product candidates were extracted from the current listing."
         return RuntimePageObservation(
             observed_url=observed_url,
             page_title=page_title,
             detected_page_hints=hints or ["search_results"],
             product_candidates=product_candidates,
+            notes=notes,
         )
 
     if page_state == "product":
@@ -242,6 +250,11 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         cart_evidence = extract_cart_evidence(page)
         cart_item_count = cart_evidence.get("cart_item_count")
         checkout_ready = cart_evidence.get("checkout_ready")
+        hints = ["product_detail"]
+        for hint in detail_evidence.get("blocker_hints") or []:
+            hint_text = _normalize_text(hint).lower().replace(" ", "_")
+            if hint_text and hint_text not in hints:
+                hints.append(hint_text)
         notes_list: list[str] = []
         detail_notes = _normalize_text(detail_evidence.get("notes"))
         if detail_notes:
@@ -249,7 +262,7 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         return RuntimePageObservation(
             observed_url=observed_url,
             page_title=page_title,
-            detected_page_hints=["product_detail"],
+            detected_page_hints=hints,
             primary_product=primary_product,
             cart_item_count=cart_item_count,
             checkout_ready=checkout_ready,
@@ -266,10 +279,17 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
         checkout_ready = cart_evidence.get("checkout_ready")
         if checkout_ready is None:
             checkout_ready, _ = detect_checkout_entry_readiness(page)
+        hints = [page_state]
+        for note in cart_evidence.get("notes") or []:
+            lowered = _normalize_text(note).lower()
+            if lowered == "guest_checkout_entry_visible" and "guest_checkout_entry_visible" not in hints:
+                hints.append("guest_checkout_entry_visible")
+            if lowered == "terms_of_service_required" and "terms_of_service_required" not in hints:
+                hints.append("terms_of_service_required")
         return RuntimePageObservation(
             observed_url=observed_url,
             page_title=page_title,
-            detected_page_hints=[page_state],
+            detected_page_hints=hints,
             cart_items=cart_items,
             cart_item_count=cart_evidence.get("cart_item_count"),
             checkout_ready=checkout_ready,

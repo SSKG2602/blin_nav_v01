@@ -61,6 +61,8 @@ def _collect_observed_text(candidate: ProductCandidate | None) -> str:
         for part in [
             candidate.brand_text,
             candidate.title,
+            candidate.summary_text,
+            candidate.quantity_text,
             candidate.variant_text,
             candidate.availability_text,
             candidate.price_text,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -22,8 +23,20 @@ client = TestClient(app)
 
 
 class _BodyLocator:
-    def __init__(self, text: str) -> None:
+    def __init__(
+        self,
+        text: str,
+        *,
+        visible: bool = True,
+        count: int = 1,
+        attrs: dict[str, Any] | None = None,
+        nested: dict[str, list[dict[str, Any]] | dict[str, Any]] | None = None,
+    ) -> None:
         self._text = text
+        self._visible = visible
+        self._count = count
+        self._attrs = attrs or {}
+        self._nested = nested or {}
 
     @property
     def first(self) -> _BodyLocator:
@@ -33,10 +46,26 @@ class _BodyLocator:
         return self._text
 
     def count(self) -> int:
-        return 1
+        return self._count
 
     def is_visible(self, timeout: int | None = None) -> bool:
-        return True
+        return self._visible
+
+    def get_attribute(self, attr_name: str, timeout: int | None = None) -> str | None:
+        value = self._attrs.get(attr_name)
+        return None if value is None else str(value)
+
+    def locator(self, selector: str) -> _BodyLocator:
+        entry = self._nested.get(selector)
+        if isinstance(entry, list):
+            return _BodyLocator("", visible=bool(entry), count=len(entry))
+        if isinstance(entry, dict):
+            return _BodyLocator(
+                str(entry.get("text", "")),
+                visible=bool(entry.get("visible", True)),
+                attrs=entry.get("attrs"),
+            )
+        return _BodyLocator("", visible=False, count=0)
 
 
 class _AccessDeniedPage:
@@ -52,7 +81,7 @@ class _AccessDeniedPage:
                 "You don't have permission to access this server. "
                 "Reference #18.6518d017 https://errors.edgesuite.net/"
             )
-        return _BodyLocator("")
+        return _BodyLocator("", visible=False, count=0)
 
 
 def _force_dummy_mode() -> None:
@@ -80,11 +109,19 @@ def test_dummy_mode_observation_endpoint_returns_unknown_safe_payload() -> None:
 def test_search_results_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://demo.nopcommerce.com/search?q=dog+food",
+            "observed_url": "https://demo.nopcommerce.com/search?q=htc",
             "page_title": "Search",
             "product_candidates": [
-                {"title": "Pedigree Adult Dog Food 3kg", "price_text": "₹799"},
-                {"title": "Drools Dog Food 3kg", "price_text": "₹699"},
+                {
+                    "title": "HTC One M8 Android L 5.0 Lollipop",
+                    "price_text": "$245.00",
+                    "url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+                },
+                {
+                    "title": "Nokia Lumia 1020",
+                    "price_text": "$349.00",
+                    "url": "https://demo.nopcommerce.com/nokia-lumia-1020",
+                },
             ],
         }
     )
@@ -96,19 +133,23 @@ def test_search_results_like_observation_snapshot() -> None:
 def test_product_detail_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://demo.nopcommerce.com/build-your-own-computer",
-            "page_title": "Pedigree Adult Dog Food",
+            "observed_url": "https://demo.nopcommerce.com/htc-one-m8-android-l-50-lollipop",
+            "page_title": "HTC One M8 Android L 5.0 Lollipop",
             "primary_product": {
-                "title": "Pedigree Adult Dog Food",
-                "price_text": "₹799",
-                "availability_text": "In stock",
+                "title": "HTC One M8 Android L 5.0 Lollipop",
+                "price_text": "$245.00",
+                "summary_text": "A lightweight Android handset with a bright screen.",
+                "quantity_text": "Qty: 1",
+                "availability_text": "Add to cart available",
             },
         }
     )
 
     assert "product_detail" in observation.detected_page_hints
     assert observation.primary_product is not None
-    assert observation.primary_product["title"] == "Pedigree Adult Dog Food"
+    assert observation.primary_product["title"] == "HTC One M8 Android L 5.0 Lollipop"
+    assert observation.primary_product["summary_text"] == "A lightweight Android handset with a bright screen."
+    assert observation.primary_product["quantity_text"] == "Qty: 1"
 
 
 def test_cart_like_observation_snapshot() -> None:
@@ -127,14 +168,39 @@ def test_cart_like_observation_snapshot() -> None:
 def test_checkout_like_observation_snapshot() -> None:
     observation = extract_observation_from_snapshot(
         {
-            "observed_url": "https://demo.nopcommerce.com/checkout",
-            "page_title": "Checkout - Address",
+            "observed_url": "https://demo.nopcommerce.com/login/checkoutasguest",
+            "page_title": "Welcome, Please Sign In!",
             "checkout_ready": True,
         }
     )
 
     assert "checkout" in observation.detected_page_hints
+    assert "guest_checkout_entry_visible" in observation.detected_page_hints
     assert observation.checkout_ready is True
+
+
+def test_product_detail_current_page_observation_carries_blocker_hints() -> None:
+    class _ConfigurablePage:
+        url = "https://demo.nopcommerce.com/build-your-own-computer"
+
+        def title(self) -> str:
+            return "Build your own computer"
+
+        def locator(self, selector: str) -> _BodyLocator:
+            mapping = {
+                "div.product-essential": _BodyLocator("", visible=True),
+                "div.product-name h1": _BodyLocator("Build your own computer"),
+                ".prices .actual-price": _BodyLocator("$1,200.00"),
+                ".attributes label.text-prompt": _BodyLocator("Processor *"),
+                "select[id^='product_attribute_']": _BodyLocator("", attrs={"value": "0"}),
+                "body": _BodyLocator("Build your own computer Please select Processor"),
+            }
+            return mapping.get(selector, _BodyLocator("", visible=False, count=0))
+
+    observation = extract_current_page_observation(_ConfigurablePage())
+
+    assert "product_detail" in observation.detected_page_hints
+    assert "option_selection_required" in observation.detected_page_hints
 
 
 def test_access_denied_snapshot_is_not_classified_as_home() -> None:

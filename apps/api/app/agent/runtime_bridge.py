@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any
 
 from app.agent.state import (
@@ -41,6 +42,275 @@ def _truthy_text(value: str | None) -> str | None:
     return None
 
 
+def _normalize_hint(value: str | None) -> str | None:
+    text = _truthy_text(value)
+    if not text:
+        return None
+    return text.lower().replace("-", "_").replace(" ", "_")
+
+
+def _page_hints(page: PageUnderstanding | None) -> set[str]:
+    if page is None:
+        return set()
+    hints = {
+        hint
+        for hint in (_normalize_hint(raw) for raw in page.detected_page_hints)
+        if hint
+    }
+    notes = _truthy_text(page.notes)
+    if notes:
+        normalized_notes = notes.lower().replace(" ", "_")
+        for token in (
+            "guest_checkout_entry_visible",
+            "option_selection_required",
+            "minimum_quantity_required",
+            "cart_items_visible",
+            "cart_verified",
+            "layout_shift",
+            "selector_degradation",
+            "weak_page_evidence",
+            "modal",
+            "popup",
+        ):
+            if token in normalized_notes:
+                hints.add(token)
+    return hints
+
+
+def _page_has_signal(page: PageUnderstanding | None, *signals: str) -> bool:
+    hints = _page_hints(page)
+    return any(_normalize_hint(signal) in hints for signal in signals)
+
+
+def _page_label(page: PageUnderstanding | None) -> str:
+    if page is None:
+        return "unknown"
+    return page.page_type.value.lower()
+
+
+def _preferred_product_candidate(
+    page: PageUnderstanding | None,
+    cart_snapshot: CartSnapshot | None = None,
+) -> ProductCandidate | CartItemContext | None:
+    if page is not None and page.primary_product is not None:
+        return page.primary_product
+    if page is not None and page.product_candidates:
+        return page.product_candidates[0]
+    if cart_snapshot is not None and cart_snapshot.items:
+        return cart_snapshot.items[0]
+    return None
+
+
+def _candidate_title(
+    page: PageUnderstanding | None,
+    cart_snapshot: CartSnapshot | None = None,
+) -> str | None:
+    candidate = _preferred_product_candidate(page, cart_snapshot)
+    return _truthy_text(candidate.title if candidate is not None else None)
+
+
+def _candidate_price(
+    page: PageUnderstanding | None,
+    cart_snapshot: CartSnapshot | None = None,
+) -> str | None:
+    candidate = _preferred_product_candidate(page, cart_snapshot)
+    return _truthy_text(candidate.price_text if candidate is not None else None)
+
+
+def _candidate_quantity_text(
+    page: PageUnderstanding | None,
+    cart_snapshot: CartSnapshot | None = None,
+) -> str | None:
+    candidate = _preferred_product_candidate(page, cart_snapshot)
+    return _truthy_text(candidate.quantity_text if candidate is not None else None)
+
+
+def _extract_minimum_quantity_value(page: PageUnderstanding | None) -> int | None:
+    quantity_text = _candidate_quantity_text(page)
+    if quantity_text:
+        match = re.search(r"minimum quantity[^0-9]*(\d+)", quantity_text, flags=re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+    notes = _truthy_text(page.notes if page is not None else None)
+    if notes:
+        match = re.search(r"minimum_quantity_required[:= ]+(\d+)", notes, flags=re.IGNORECASE)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def _blocker_reason(
+    page: PageUnderstanding | None,
+    verification: ProductVerificationResult | None = None,
+) -> str | None:
+    if _page_has_signal(page, "option_selection_required"):
+        return "required_options"
+    if _page_has_signal(page, "minimum_quantity_required"):
+        minimum_quantity = _extract_minimum_quantity_value(page)
+        if minimum_quantity is not None:
+            return f"minimum_quantity_{minimum_quantity}"
+        return "minimum_quantity"
+    if verification is not None and verification.decision == VerificationDecision.AMBIGUOUS:
+        return "product_ambiguity"
+    if verification is not None and verification.decision == VerificationDecision.PARTIAL_MATCH:
+        return "partial_match"
+    return None
+
+
+def _checkout_stop_reason(
+    page: PageUnderstanding | None,
+    final_purchase_confirmation: FinalPurchaseConfirmation | None = None,
+) -> str | None:
+    if _page_has_signal(page, "guest_checkout_entry_visible", "bounded_checkout_entry_stop"):
+        return "guest_checkout_entry_visible"
+    if (
+        page is not None
+        and page.page_type == PageType.CHECKOUT
+        and final_purchase_confirmation is not None
+        and final_purchase_confirmation.required
+    ):
+        return "checkout_entry_boundary"
+    return None
+
+
+def derive_bounded_demo_spoken_summary(
+    *,
+    page: PageUnderstanding | None,
+    verification: ProductVerificationResult | None,
+    clarification_request: ClarificationRequest | None,
+    cart_snapshot: CartSnapshot | None,
+    recovery_status,
+    low_confidence_status,
+    final_purchase_confirmation: FinalPurchaseConfirmation | None,
+) -> str | None:
+    if recovery_status is not None and recovery_status.active:
+        page_label = _page_label(page)
+        reason = _truthy_text(recovery_status.reason) or _truthy_text(recovery_status.last_attempt_summary)
+        if reason:
+            return f"Recovery engaged on {page_label}. {reason}"
+        return f"Recovery engaged on {page_label}."
+
+    if low_confidence_status is not None and low_confidence_status.active:
+        return "I stopped because the current page evidence is too weak to continue safely."
+
+    if clarification_request is not None and clarification_request.status == ClarificationStatus.PENDING:
+        if clarification_request.kind == ClarificationKind.PRODUCT_SELECTION:
+            option_count = len(clarification_request.candidate_options)
+            return (
+                f"Results loaded. I found {option_count} similar products and need confirmation before opening one."
+            )
+        if clarification_request.kind in {
+            ClarificationKind.PRODUCT_AMBIGUITY,
+            ClarificationKind.PARTIAL_MATCH,
+            ClarificationKind.VARIANT_PRECISION,
+        }:
+            return "Product details need clarification before I add anything to the cart."
+        if clarification_request.kind == ClarificationKind.INTERRUPTION_REANCHOR:
+            return "The flow was interrupted. I need your next instruction before continuing."
+
+    checkout_stop = _checkout_stop_reason(page, final_purchase_confirmation)
+    if checkout_stop is not None:
+        title = _candidate_title(page, cart_snapshot)
+        if title:
+            return f"Checkout entry reached for {title}. Stopping before guest checkout."
+        return "Checkout entry reached. Stopping before guest checkout."
+
+    if page is None:
+        return None
+
+    blocker_reason = _blocker_reason(page, verification)
+    if blocker_reason == "required_options":
+        title = _candidate_title(page, cart_snapshot) or "the current product"
+        return f"Product blocked before add to cart. {title} still needs required options selected."
+    if blocker_reason and blocker_reason.startswith("minimum_quantity_"):
+        title = _candidate_title(page, cart_snapshot) or "the current product"
+        minimum_quantity = blocker_reason.rsplit("_", 1)[-1]
+        return f"Product blocked before add to cart. {title} requires minimum quantity {minimum_quantity}."
+    if blocker_reason == "minimum_quantity":
+        title = _candidate_title(page, cart_snapshot) or "the current product"
+        return f"Product blocked before add to cart. {title} requires a higher minimum quantity."
+
+    if page.page_type == PageType.CART and cart_snapshot is not None and (cart_snapshot.cart_item_count or 0) > 0:
+        item_count = cart_snapshot.cart_item_count or len(cart_snapshot.items)
+        title = _candidate_title(page, cart_snapshot)
+        item_label = "item" if item_count == 1 else "items"
+        if title:
+            return f"Added to cart: {title}. Cart verified with {item_count} {item_label}."
+        return f"Cart verified with {item_count} {item_label}."
+
+    if page.page_type == PageType.PRODUCT_DETAIL and verification is not None and verification.decision == VerificationDecision.MATCH:
+        title = _candidate_title(page, cart_snapshot) or "current product"
+        price = _candidate_price(page, cart_snapshot)
+        if price:
+            return f"Product verified: {title} at {price}."
+        return f"Product verified: {title}."
+
+    if page.page_type == PageType.SEARCH_RESULTS:
+        candidate_count = len(page.product_candidates)
+        item_label = "candidate" if candidate_count == 1 else "candidates"
+        return f"Results loaded. I found {candidate_count} {item_label} on the demo store."
+
+    if page.page_type == PageType.HOME:
+        return "The demo store home page is ready."
+
+    return None
+
+
+def derive_bounded_demo_audit_summary(
+    *,
+    page: PageUnderstanding | None,
+    verification: ProductVerificationResult | None,
+    clarification_request: ClarificationRequest | None,
+    cart_snapshot: CartSnapshot | None,
+    recovery_status,
+    low_confidence_status,
+    final_purchase_confirmation: FinalPurchaseConfirmation | None,
+) -> tuple[str | None, str | None]:
+    if page is None:
+        return None, None
+
+    hints = "|".join(page.detected_page_hints[:4]) if page.detected_page_hints else None
+    input_parts = [
+        f"page={page.page_type.value}",
+        f"confidence={page.confidence:.2f}",
+    ]
+    if hints:
+        input_parts.append(f"hints={hints}")
+
+    output_parts: list[str] = []
+    title = _candidate_title(page, cart_snapshot)
+    if title:
+        output_parts.append(f"selected={title}")
+    if verification is not None:
+        output_parts.append(f"verification={verification.decision.value}")
+    if clarification_request is not None and clarification_request.status == ClarificationStatus.PENDING:
+        output_parts.append(f"ambiguity={clarification_request.kind.value}")
+    blocker_reason = _blocker_reason(page, verification)
+    if blocker_reason is not None:
+        output_parts.append(f"blocker={blocker_reason}")
+    if recovery_status is not None and recovery_status.active and recovery_status.recovery_kind is not None:
+        output_parts.append(
+            f"recovery={recovery_status.recovery_kind.value}:{_truthy_text(recovery_status.reason) or 'pending'}"
+        )
+    if low_confidence_status is not None and low_confidence_status.active:
+        output_parts.append(f"low_confidence={low_confidence_status.confidence}")
+    if cart_snapshot is not None and cart_snapshot.cart_item_count is not None:
+        output_parts.append(f"cart={cart_snapshot.cart_item_count}")
+    checkout_stop = _checkout_stop_reason(page, final_purchase_confirmation)
+    if checkout_stop is not None:
+        output_parts.append(f"checkout_stop={checkout_stop}")
+    if page.notes:
+        output_parts.append(f"notes={page.notes}")
+
+    return "; ".join(input_parts), "; ".join(output_parts) or None
+
+
 def build_cart_snapshot(
     *,
     page: PageUnderstanding | None,
@@ -77,7 +347,15 @@ def build_cart_snapshot(
         cart_item_count = len(items)
 
     checkout_ready = page.checkout_ready if page is not None else None
-    notes = _truthy_text(page.notes if page is not None else None)
+    note_parts: list[str] = []
+    page_notes = _truthy_text(page.notes if page is not None else None)
+    if page_notes:
+        note_parts.append(page_notes)
+    if items and (cart_item_count or 0) > 0:
+        note_parts.append(f"cart_verified:{cart_item_count or len(items)}")
+    if _checkout_stop_reason(page):
+        note_parts.append("checkout_stop:guest_checkout_entry_visible")
+    notes = ", ".join(dict.fromkeys(note_parts)) or None
     return CartSnapshot(
         items=items,
         cart_item_count=cart_item_count,

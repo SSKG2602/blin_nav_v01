@@ -73,6 +73,19 @@ def _coerce_candidate(value: Any) -> ProductCandidate | None:
     return None
 
 
+def _extract_detected_hints(raw_data: dict[str, Any]) -> list[str]:
+    raw_hints = raw_data.get("detected_page_hints")
+    if not isinstance(raw_hints, list):
+        return []
+
+    normalized: list[str] = []
+    for raw in raw_hints:
+        text = _normalize_text(raw).replace("-", "_").replace(" ", "_")
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
 def _extract_candidates(raw_data: dict[str, Any]) -> list[ProductCandidate]:
     source = raw_data.get("product_candidates")
     if source is None:
@@ -209,6 +222,7 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
     page_title = str(page_title_value).strip() if isinstance(page_title_value, str) else None
 
     explicit_page_type = _to_page_type(raw_data.get("page_type"))
+    detected_page_hints = _extract_detected_hints(raw_data)
     candidates = _extract_candidates(raw_data)
 
     blocked_page = raw_data.get("blocked_page") is True
@@ -253,6 +267,7 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
     return PageUnderstanding(
         page_type=page_type,
         page_title=page_title,
+        detected_page_hints=detected_page_hints,
         product_candidates=candidates,
         primary_product=primary_product,
         cart_item_count=cart_item_count,

@@ -736,17 +736,17 @@ def next_state(
                 state_before=current_state,
                 state_after=AgentState.FINAL_CONFIRMATION,
                 tool_name="agent.checkout_planner",
-                tool_input_excerpt="checkout_completed",
-                tool_output_excerpt="Checkout completed; awaiting final confirmation.",
+                tool_input_excerpt="checkout_entry_reached",
+                tool_output_excerpt="Checkout entry reached; stopping before guest checkout.",
                 human_checkpoint=True,
-                user_spoken_summary="Checkout is complete. Please confirm final purchase.",
+                user_spoken_summary="Checkout entry reached. Stopping before guest checkout.",
             )
             return AgentTransitionResult(
                 new_state=AgentState.FINAL_CONFIRMATION,
                 commands=[command],
                 log_entries=[log_entry],
                 spoken_summary=log_entry.user_spoken_summary,
-                debug_notes="Checkout completed; final confirmation required.",
+                debug_notes="Checkout entry reached; final confirmation boundary enforced.",
             )
 
         continue_command = AgentCommand(type=AgentCommandType.PERFORM_CHECKOUT)
@@ -784,17 +784,17 @@ def next_state(
                 state_before=current_state,
                 state_after=AgentState.FINAL_CONFIRMATION,
                 tool_name="agent.assisted_mode",
-                tool_input_excerpt="assisted_checkout_completed",
-                tool_output_excerpt="Awaiting final confirmation.",
+                tool_input_excerpt="assisted_checkout_entry_reached",
+                tool_output_excerpt="Checkout entry reached in assisted mode; stopping before guest checkout.",
                 human_checkpoint=True,
-                user_spoken_summary="Assisted checkout step completed. Please confirm final purchase.",
+                user_spoken_summary="Checkout entry reached. Stopping before guest checkout.",
             )
             return AgentTransitionResult(
                 new_state=AgentState.FINAL_CONFIRMATION,
                 commands=[command],
                 log_entries=[log_entry],
                 spoken_summary=log_entry.user_spoken_summary,
-                debug_notes="Assisted mode moved to final confirmation.",
+                debug_notes="Assisted mode reached checkout entry boundary.",
             )
 
         if event.proceed_to_checkout:

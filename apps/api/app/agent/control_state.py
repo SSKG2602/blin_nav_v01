@@ -177,6 +177,11 @@ def derive_recovery_status(
 ) -> RecoveryStatus:
     now = datetime.utcnow()
     page_notes = (page.notes or "").lower() if page is not None else ""
+    page_hints = {
+        hint.lower()
+        for hint in (page.detected_page_hints if page is not None else [])
+        if isinstance(hint, str) and hint.strip()
+    }
     observed_page_type = page.page_type.value if page is not None else None
 
     expected_by_state = {
@@ -191,7 +196,12 @@ def derive_recovery_status(
     }
     expected_page_types = expected_by_state.get(current_state, set())
 
-    if "modal" in page_notes or "popup" in page_notes or "captcha" in page_notes:
+    if (
+        "modal" in page_notes
+        or "popup" in page_notes
+        or "captcha" in page_notes
+        or "modal_interruption" in page_hints
+    ):
         return RecoveryStatus(
             active=True,
             recovery_kind=RecoveryKind.MODAL_INTERRUPTION,
@@ -281,3 +291,23 @@ def derive_recovery_status(
         recovery_outcome="stable",
         last_updated_at=None,
     )
+    if (
+        "layout shift" in page_notes
+        or "layout_shift" in page_notes
+        or "selector degradation" in page_notes
+        or "selector_degradation" in page_notes
+        or "selector lookup failed" in page_notes
+        or "selector lookup" in page_notes
+        or "selector_degradation" in page_hints
+        or "layout_shift" in page_hints
+    ):
+        return RecoveryStatus(
+            active=True,
+            recovery_kind=RecoveryKind.PAGE_DESYNC,
+            reason="Page layout or selector evidence degraded during the bounded flow.",
+            last_attempt_summary="Re-anchor to the last stable page before continuing.",
+            expected_state=current_state.value,
+            observed_page_type=observed_page_type,
+            recovery_outcome="selector_degradation",
+            last_updated_at=now,
+        )

@@ -1840,9 +1840,11 @@ def detect_checkout_entry_readiness(page: Any) -> tuple[bool | None, list[str]]:
     body = safe_body_text(page)
     if _guest_checkout_entry_visible(page, url=url, body=body):
         notes.append("guest_checkout_entry_visible")
+        notes.append("bounded_checkout_entry_stop")
         return True, notes
     if "checkout" in url_text:
         notes.append("already_in_checkout_path")
+        notes.append("bounded_checkout_entry_stop")
         return True, notes
     if _contains_any(body, CART_EMPTY_TEXT_MARKERS):
         notes.append("cart_empty")
@@ -1917,9 +1919,11 @@ def attempt_checkout_entry(page: Any) -> tuple[bool, list[str]]:
                     notes.append("checkout_click_attempted")
                     if _guest_checkout_entry_visible(page, url=safe_page_url(page), body=safe_body_text(page)):
                         notes.append("guest_checkout_entry_visible")
+                        notes.append("bounded_checkout_entry_stop")
                         notes.append("checkout_entry_reached")
                         return True, notes
                     if classify_page_state(page) == "checkout":
+                        notes.append("bounded_checkout_entry_stop")
                         notes.append("checkout_state_confirmed")
                         return True, notes
                     notes.append("checkout_click_unverified")
@@ -1998,6 +2002,9 @@ def extract_cart_evidence(page: Any) -> dict[str, Any]:
     total_text = _extract_first_text(page, CART_TOTAL_SELECTORS)
     if total_text:
         notes.append(f"cart_total_visible:{total_text}")
+    if cart_items and (cart_item_count or 0) > 0:
+        notes.append("cart_items_visible")
+        notes.append(f"cart_verified:{cart_item_count or len(cart_items)}")
     if cart_item_count == 0:
         notes.append("cart_empty")
     if cart_item_count is None:

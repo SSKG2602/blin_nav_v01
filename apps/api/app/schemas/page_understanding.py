@@ -32,6 +32,7 @@ class ProductCandidate(BaseModel):
 class PageUnderstanding(BaseModel):
     page_type: PageType
     page_title: str | None = None
+    detected_page_hints: list[str] = Field(default_factory=list)
     product_candidates: list[ProductCandidate] = Field(default_factory=list)
     primary_product: ProductCandidate | None = None
     cart_item_count: int | None = None

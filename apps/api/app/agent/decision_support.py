@@ -328,6 +328,12 @@ def derive_final_purchase_confirmation(
     page: PageUnderstanding | None,
     previous_confirmation: FinalPurchaseConfirmation | None = None,
 ) -> FinalPurchaseConfirmation:
+    page_hints = {
+        hint.lower()
+        for hint in (page.detected_page_hints if page is not None else [])
+        if isinstance(hint, str) and hint.strip()
+    }
+
     if checkpoint is not None:
         if (
             checkpoint.kind == SensitiveCheckpointKind.FINAL_PURCHASE_CONFIRMATION
@@ -380,9 +386,17 @@ def derive_final_purchase_confirmation(
         return FinalPurchaseConfirmation(
             required=True,
             confirmed=False,
-            prompt_to_user="Checkout is ready. Please confirm final purchase.",
+            prompt_to_user=(
+                "Checkout entry is visible. Stop before guest checkout until you explicitly confirm the next step."
+                if "guest_checkout_entry_visible" in page_hints
+                else "Checkout is ready. Please confirm final purchase."
+            ),
             confirmation_phrase_expected="confirm purchase",
-            notes="Checkout-like state detected.",
+            notes=(
+                "Checkout entry boundary reached on the bounded demo path."
+                if "guest_checkout_entry_visible" in page_hints
+                else "Checkout-like state detected."
+            ),
         )
 
     if previous_confirmation is not None and previous_confirmation.confirmed:

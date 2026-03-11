@@ -20,12 +20,13 @@ class AgentOrchestrator:
         if not logs:
             return AgentState.SESSION_INITIALIZING
 
-        latest = logs[-1]
-        if latest.state_after:
+        for latest in reversed(logs):
+            if not latest.state_after:
+                continue
             try:
                 return AgentState(latest.state_after)
             except ValueError:
-                return AgentState.SESSION_INITIALIZING
+                continue
         return AgentState.SESSION_INITIALIZING
 
     def _sync_session_status(self, session_id: UUID, new_state: AgentState) -> None:

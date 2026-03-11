@@ -34,6 +34,8 @@ from app.agent.orchestrator import AgentOrchestrator
 from app.agent.product_verification import verify_product_against_intent
 from app.agent.runtime_bridge import (
     build_cart_snapshot,
+    derive_bounded_demo_audit_summary,
+    derive_bounded_demo_spoken_summary,
     derive_clarification_request,
     derive_runtime_follow_up_event,
 )
@@ -569,6 +571,35 @@ def _apply_efficiency_policy(
     return replacement, log_entry
 
 
+def _build_runtime_audit_log(
+    *,
+    session_id: UUID,
+    input_excerpt: str | None,
+    output_excerpt: str | None,
+    spoken_summary: str | None,
+    low_confidence: bool,
+    error_type: str | None = None,
+    error_message: str | None = None,
+) -> AgentLogEntry | None:
+    if not input_excerpt and not output_excerpt and not spoken_summary:
+        return None
+
+    return AgentLogEntry(
+        session_id=session_id,
+        step_type=AgentStepType.PERCEPTION,
+        state_before=None,
+        state_after=None,
+        tool_name="agent.audit",
+        tool_input_excerpt=input_excerpt,
+        tool_output_excerpt=output_excerpt,
+        low_confidence=low_confidence,
+        user_spoken_summary=spoken_summary,
+        error_type=error_type,
+        error_message=error_message,
+        created_at=datetime.utcnow(),
+    )
+
+
 def run_agent_step(
     *,
     session_id: UUID,
@@ -811,6 +842,19 @@ def run_agent_step(
                     update={"notes": (existing_notes + " " + screenshot_note).strip()}
                 )
 
+        bounded_spoken_summary = derive_bounded_demo_spoken_summary(
+            page=page_understanding,
+            verification=verification_result,
+            clarification_request=clarification_request,
+            cart_snapshot=cart_snapshot,
+            recovery_status=recovery_status,
+            low_confidence_status=low_confidence_status,
+            final_purchase_confirmation=final_purchase_confirmation,
+        )
+        if bounded_spoken_summary:
+            spoken_summary = bounded_spoken_summary
+        response_spoken_summary = spoken_summary
+
         update_payload: dict[str, object] = {
             "latest_multimodal_assessment": multimodal_assessment,
             "latest_sensitive_checkpoint": checkpoint_request,
@@ -877,6 +921,34 @@ def run_agent_step(
             session_id,
             **update_payload,
         )
+        audit_input_excerpt, audit_output_excerpt = derive_bounded_demo_audit_summary(
+            page=page_understanding,
+            verification=verification_result,
+            clarification_request=clarification_request,
+            cart_snapshot=cart_snapshot,
+            recovery_status=recovery_status,
+            low_confidence_status=low_confidence_status,
+            final_purchase_confirmation=final_purchase_confirmation,
+        )
+        runtime_audit_log = _build_runtime_audit_log(
+            session_id=session_id,
+            input_excerpt=audit_input_excerpt,
+            output_excerpt=audit_output_excerpt,
+            spoken_summary=spoken_summary,
+            low_confidence=low_confidence_status.active,
+            error_type=(
+                recovery_status.recovery_kind.value
+                if recovery_status.active and recovery_status.recovery_kind is not None
+                else ("low_confidence" if low_confidence_status.active else None)
+            ),
+            error_message=(
+                recovery_status.reason
+                if recovery_status.active
+                else (low_confidence_status.reason if low_confidence_status.active else None)
+            ),
+        )
+        if runtime_audit_log is not None:
+            append_agent_log(db, runtime_audit_log)
         if (
             checkpoint_request is not None
             and checkpoint_request.status == CheckpointStatus.PENDING

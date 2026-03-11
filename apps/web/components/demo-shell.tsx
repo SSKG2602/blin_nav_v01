@@ -582,7 +582,7 @@ export function DemoShell() {
           </article>
 
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
-            <h2 className="text-lg font-semibold">Post-Purchase Summary</h2>
+            <h2 className="text-lg font-semibold">Current Session Evidence</h2>
             {postPurchase ? (
               <div className="mt-3 space-y-1 text-sm text-slate-700">
                 <p>Item: {postPurchase.order_item_title ?? "n/a"}</p>
@@ -593,7 +593,7 @@ export function DemoShell() {
                 </p>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-600">No post-purchase evidence yet.</p>
+              <p className="mt-3 text-sm text-slate-600">No current session evidence captured yet.</p>
             )}
           </article>
 
@@ -692,7 +692,10 @@ export function DemoShell() {
 
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Latest Order Snapshot</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Deferred Order Snapshot</h2>
+                <p className="mt-1 text-xs text-slate-500">Not part of the bounded nopCommerce demo path.</p>
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -700,7 +703,7 @@ export function DemoShell() {
                   onClick={demo.fetchLatestOrderSnapshot}
                   disabled={!demo.sessionId}
                 >
-                  Load Latest Order
+                  Load Deferred Order
                 </button>
                 {(postPurchase || latestOrder) ? (
                   <button
@@ -709,7 +712,7 @@ export function DemoShell() {
                     onClick={demo.cancelPlacedOrder}
                     disabled={!demo.sessionId || demo.orderCancelBusy}
                   >
-                    {demo.orderCancelBusy ? "Cancelling..." : "Cancel Latest Order"}
+                    {demo.orderCancelBusy ? "Cancelling..." : "Cancel Deferred Order"}
                   </button>
                 ) : null}
               </div>
@@ -726,7 +729,7 @@ export function DemoShell() {
                 <p className="rounded-xl bg-slate-100 px-3 py-2">{latestOrder.spoken_summary}</p>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-600">No latest-order snapshot loaded yet.</p>
+              <p className="mt-3 text-sm text-slate-600">No deferred order snapshot loaded.</p>
             )}
           </article>
 

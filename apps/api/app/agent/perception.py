@@ -49,6 +49,7 @@ def _coerce_bool(value: Any) -> bool | None:
 def _to_page_type(value: Any) -> PageType | None:
     text = _normalize_text(value).replace("-", "_").replace(" ", "_")
     mapping = {
+        "access_denied": PageType.UNKNOWN,
         "home": PageType.HOME,
         "search_results": PageType.SEARCH_RESULTS,
         "search": PageType.SEARCH_RESULTS,
@@ -132,6 +133,9 @@ def _infer_page_type(
     checkout_ready: bool | None,
     page_title: str | None,
 ) -> PageType:
+    if raw_data.get("blocked_page") is True:
+        return PageType.UNKNOWN
+
     if explicit_page_type is not None:
         return explicit_page_type
 
@@ -231,8 +235,12 @@ def classify_page_understanding(raw_data: dict[str, Any]) -> PageUnderstanding:
         cart_item_count=cart_item_count,
         checkout_ready=checkout_ready,
     )
+    if raw_data.get("blocked_page") is True:
+        confidence = min(confidence, 0.10)
 
     notes = raw_data.get("notes") if isinstance(raw_data.get("notes"), str) else None
+    if notes is None and raw_data.get("blocked_page") is True:
+        notes = "BigBasket blocked the runtime browser session."
     if notes is None and page_type == PageType.UNKNOWN:
         notes = "Page type could not be inferred from current signals."
 

@@ -84,13 +84,19 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             return {}
         return payload_json if isinstance(payload_json, dict) else {}
 
-    def _get_json(self, path: str, *, timeout: httpx.Timeout | None = None) -> dict[str, Any]:
+    def _get_json(
+        self,
+        path: str,
+        *,
+        timeout: httpx.Timeout | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         try:
             with httpx.Client(
                 base_url=self._base_url,
                 timeout=timeout or self._timeout,
             ) as client:
-                response = client.get(path)
+                response = client.get(path, params=params)
         except Exception as exc:
             logger.warning(
                 "browser_runtime_get_failed path=%s error=%s",
@@ -303,5 +309,63 @@ class HttpBrowserRuntimeClient(BrowserRuntimeClient):
             timeout=self._screenshot_timeout,
         )
 
+    def get_connection_status(
+        self,
+        *,
+        session_id: UUID,
+        merchant_domain: str,
+    ) -> dict[str, Any]:
+        try:
+            with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
+                response = client.get(
+                    f"/sessions/{session_id}/observation/auth_status",
+                    params={"merchant_domain": merchant_domain},
+                )
+        except Exception as exc:
+            raise RuntimeError(f"Failed to reach browser runtime: {exc}") from exc
+
+        if not response.is_success:
+            detail = response.text.strip() or "browser runtime rejected the status request"
+            raise RuntimeError(detail)
+
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise RuntimeError(f"browser runtime returned invalid status JSON: {exc}") from exc
+
+        return payload if isinstance(payload, dict) else {}
+
+    def set_connection_cookies(
+        self,
+        *,
+        session_id: UUID,
+        cookies: str,
+        merchant_domain: str,
+    ) -> None:
+        try:
+            with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
+                response = client.post(
+                    f"/sessions/{session_id}/cookies",
+                    json={
+                        "cookies": cookies,
+                        "merchant_domain": merchant_domain,
+                    },
+                )
+        except Exception as exc:
+            raise RuntimeError(f"Failed to reach browser runtime: {exc}") from exc
+
+        if response.is_success:
+            return
+
+        detail = response.text.strip() or "browser runtime rejected the cookie payload"
+        raise RuntimeError(detail)
+
     def get_amazon_auth_status(self, *, session_id: UUID) -> dict[str, Any]:
-        return self._get_json(f"/sessions/{session_id}/observation/amazon_auth_status")
+        return self.get_connection_status(session_id=session_id, merchant_domain="amazon.in")
+
+    def set_amazon_cookies(self, *, session_id: UUID, cookies: str) -> None:
+        self.set_connection_cookies(
+            session_id=session_id,
+            cookies=cookies,
+            merchant_domain="amazon.in",
+        )

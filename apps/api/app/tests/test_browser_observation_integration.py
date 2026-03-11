@@ -221,6 +221,21 @@ def test_build_page_understanding_from_browser_observation() -> None:
     assert understanding.primary_product is not None
 
 
+def test_build_page_understanding_from_blocked_browser_observation() -> None:
+    understanding = build_page_understanding_from_browser_observation(
+        {
+            "observed_url": "https://www.bigbasket.com/",
+            "page_title": "Access Denied",
+            "detected_page_hints": ["access_denied", "unknown"],
+        }
+    )
+
+    assert understanding.page_type == PageType.UNKNOWN
+    assert understanding.notes == "BigBasket blocked the runtime browser session."
+    assert understanding.confidence <= 0.10
+    assert understanding.primary_product is None
+
+
 def test_capture_page_understanding_from_browser_client() -> None:
     class _FakeBrowserClient:
         def get_current_page_observation(self, *, session_id: UUID) -> dict[str, Any]:

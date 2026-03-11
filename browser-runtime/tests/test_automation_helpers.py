@@ -13,7 +13,9 @@ from browser_runtime.automation.helpers import (
     action_guard,
     add_current_product_to_cart,
     choose_best_product_candidate,
+    classify_page_state,
     collect_semantic_page_signals,
+    detect_access_denied,
     dismiss_common_interruptions,
     extract_cart_evidence,
     extract_product_detail_evidence,
@@ -209,6 +211,37 @@ def test_collect_semantic_page_signals_detects_checkpoint_and_structure_anchors(
     assert "product_anchor_present" in signals
     assert "cart_anchor_present" in signals
     assert "checkout_anchor_present" in signals
+
+
+def test_detect_access_denied_uses_title_and_body_markers() -> None:
+    page = FakePage(
+        url="https://www.bigbasket.com/",
+        title="Access Denied",
+        selectors={
+            "body": [
+                {
+                    "text": (
+                        "You don't have permission to access \"http://www.bigbasket.com/\" "
+                        "on this server. Reference #18.6518d017 https://errors.edgesuite.net/"
+                    )
+                }
+            ]
+        },
+    )
+
+    assert detect_access_denied(page) is True
+    assert classify_page_state(page) == "unknown"
+
+
+def test_classify_page_state_keeps_normal_bigbasket_home() -> None:
+    page = FakePage(
+        url="https://www.bigbasket.com/",
+        title="Bigbasket | Online Grocery Shopping and Online Supermarket",
+        selectors={"body": [{"text": "Fresh fruits, vegetables, and groceries"}]},
+    )
+
+    assert detect_access_denied(page) is False
+    assert classify_page_state(page) == "home"
 
 
 def test_duplicate_search_guard_skips_immediate_repeat() -> None:

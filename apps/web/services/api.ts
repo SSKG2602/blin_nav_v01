@@ -91,6 +91,10 @@ export function buildAmazonLoginUrl(sessionId?: string | null): string {
   return url.toString();
 }
 
+export async function getBigBasketConnectionStatus(sessionId: string): Promise<AmazonConnectionStatus> {
+  return requestJson<AmazonConnectionStatus>(`/api/auth/bigbasket/status/${sessionId}`);
+}
+
 export async function getAmazonConnectionStatus(sessionId: string): Promise<AmazonConnectionStatus> {
   return requestJson<AmazonConnectionStatus>(`/api/auth/amazon/status/${sessionId}`);
 }

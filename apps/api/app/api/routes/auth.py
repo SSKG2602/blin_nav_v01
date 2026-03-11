@@ -11,6 +11,7 @@ from starlette.responses import RedirectResponse
 
 from app.core.config import settings
 from app.db.session import get_db
+from app.repositories.session_repo import get_session
 from app.repositories.auth_repo import authenticate_user, create_user, issue_auth_token
 from app.schemas.auth import AmazonConnectionStatus, AuthSessionResponse, LoginRequest, SignupRequest
 from app.security import get_current_user_optional, get_current_user_required
@@ -90,13 +91,7 @@ def amazon_login_redirect() -> RedirectResponse:
     )
 
 
-@router.post("/amazon/cookies")
-def set_amazon_connection_cookies(
-    payload: dict[str, Any] = Body(...),
-    db: Session = Depends(get_db),
-    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
-    current_user=Depends(get_current_user_optional),
-) -> dict[str, bool]:
+def _parse_connection_cookie_payload(payload: dict[str, Any]) -> tuple[UUID, str]:
     raw_session_id = payload.get("session_id")
     raw_cookies = payload.get("cookies")
 
@@ -112,25 +107,48 @@ def set_amazon_connection_cookies(
         )
 
     try:
-        session_id = UUID(raw_session_id)
+        return UUID(raw_session_id), raw_cookies
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="session_id must be a valid UUID",
         ) from exc
 
+
+def _resolve_session_merchant_domain(
+    *,
+    db: Session,
+    session_id: UUID,
+    current_user,
+) -> str:
     from app.api.routes.session import _require_existing_session
 
     _require_existing_session(db, session_id, current_user=current_user)
+    session = get_session(db, session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return session.merchant.value
 
-    runtime_setter = getattr(browser_client, "set_amazon_cookies", None)
+
+def _set_connection_cookies(
+    *,
+    session_id: UUID,
+    cookies: str,
+    merchant_domain: str,
+    browser_client: BrowserRuntimeClient,
+) -> dict[str, bool]:
+    runtime_setter = getattr(browser_client, "set_connection_cookies", None)
     if callable(runtime_setter):
         try:
-            runtime_setter(session_id=session_id, cookies=raw_cookies)
+            runtime_setter(
+                session_id=session_id,
+                cookies=cookies,
+                merchant_domain=merchant_domain,
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to load Amazon cookies into the browser runtime: {exc}",
+                detail=f"Failed to load merchant cookies into the browser runtime: {exc}",
             ) from exc
         return {"connected": True}
 
@@ -138,7 +156,10 @@ def set_amazon_connection_cookies(
         with httpx.Client(base_url=settings.BROWSER_RUNTIME_BASE_URL, timeout=10.0) as client:
             response = client.post(
                 f"/sessions/{session_id}/cookies",
-                json={"cookies": raw_cookies},
+                json={
+                    "cookies": cookies,
+                    "merchant_domain": merchant_domain,
+                },
             )
     except Exception as exc:
         raise HTTPException(
@@ -156,6 +177,77 @@ def set_amazon_connection_cookies(
     return {"connected": True}
 
 
+def _get_connection_status_payload(
+    *,
+    session_id: UUID,
+    merchant_domain: str,
+    browser_client: BrowserRuntimeClient,
+) -> AmazonConnectionStatus:
+    runtime_getter = getattr(browser_client, "get_connection_status", None)
+    if callable(runtime_getter):
+        try:
+            payload = runtime_getter(
+                session_id=session_id,
+                merchant_domain=merchant_domain,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to inspect merchant connection status: {exc}",
+            ) from exc
+        return AmazonConnectionStatus.model_validate(payload or {})
+
+    try:
+        with httpx.Client(base_url=settings.BROWSER_RUNTIME_BASE_URL, timeout=10.0) as client:
+            response = client.get(
+                f"/sessions/{session_id}/observation/auth_status",
+                params={"merchant_domain": merchant_domain},
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to reach the browser runtime: {exc}",
+        ) from exc
+
+    if not response.is_success:
+        detail = response.text.strip() or "browser runtime rejected the status request"
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        )
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="browser runtime returned invalid status JSON",
+        ) from exc
+
+    return AmazonConnectionStatus.model_validate(payload or {})
+
+
+@router.post("/amazon/cookies")
+def set_amazon_connection_cookies(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
+    current_user=Depends(get_current_user_optional),
+) -> dict[str, bool]:
+    session_id, cookies = _parse_connection_cookie_payload(payload)
+    merchant_domain = _resolve_session_merchant_domain(
+        db=db,
+        session_id=session_id,
+        current_user=current_user,
+    )
+    return _set_connection_cookies(
+        session_id=session_id,
+        cookies=cookies,
+        merchant_domain=merchant_domain,
+        browser_client=browser_client,
+    )
+
+
 @router.get(
     "/amazon/status/{session_id}",
     response_model=AmazonConnectionStatus,
@@ -166,11 +258,16 @@ def get_amazon_connection_status(
     browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
     current_user=Depends(get_current_user_optional),
 ) -> AmazonConnectionStatus:
-    from app.api.routes.session import _require_existing_session
-
-    _require_existing_session(db, session_id, current_user=current_user)
-    payload = browser_client.get_amazon_auth_status(session_id=session_id)
-    return AmazonConnectionStatus.model_validate(payload or {})
+    merchant_domain = _resolve_session_merchant_domain(
+        db=db,
+        session_id=session_id,
+        current_user=current_user,
+    )
+    return _get_connection_status_payload(
+        session_id=session_id,
+        merchant_domain=merchant_domain,
+        browser_client=browser_client,
+    )
 
 
 @router.post("/bigbasket/cookies")
@@ -180,9 +277,17 @@ def set_bigbasket_connection_cookies(
     browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
     current_user=Depends(get_current_user_optional),
 ) -> dict[str, bool]:
-    """BigBasket cookie loader — same cookie mechanism as Amazon route."""
-    return set_amazon_connection_cookies(
-        payload=payload, db=db, browser_client=browser_client, current_user=current_user
+    session_id, cookies = _parse_connection_cookie_payload(payload)
+    merchant_domain = _resolve_session_merchant_domain(
+        db=db,
+        session_id=session_id,
+        current_user=current_user,
+    )
+    return _set_connection_cookies(
+        session_id=session_id,
+        cookies=cookies,
+        merchant_domain=merchant_domain,
+        browser_client=browser_client,
     )
 
 
@@ -193,6 +298,13 @@ def get_bigbasket_connection_status(
     browser_client: BrowserRuntimeClient = Depends(get_browser_runtime_client),
     current_user=Depends(get_current_user_optional),
 ) -> AmazonConnectionStatus:
-    return get_amazon_connection_status(
-        session_id=session_id, db=db, browser_client=browser_client, current_user=current_user
+    merchant_domain = _resolve_session_merchant_domain(
+        db=db,
+        session_id=session_id,
+        current_user=current_user,
+    )
+    return _get_connection_status_payload(
+        session_id=session_id,
+        merchant_domain=merchant_domain,
+        browser_client=browser_client,
     )

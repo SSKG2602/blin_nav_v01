@@ -12,10 +12,47 @@ if str(RUNTIME_ROOT) not in sys.path:
 
 from browser_runtime.driver import browser_session_manager
 from browser_runtime.main import app
-from browser_runtime.observation.extractor import extract_observation_from_snapshot
+from browser_runtime.observation.extractor import (
+    extract_current_page_observation,
+    extract_observation_from_snapshot,
+)
 
 
 client = TestClient(app)
+
+
+class _BodyLocator:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    @property
+    def first(self) -> _BodyLocator:
+        return self
+
+    def inner_text(self, timeout: int | None = None) -> str:
+        return self._text
+
+    def count(self) -> int:
+        return 1
+
+    def is_visible(self, timeout: int | None = None) -> bool:
+        return True
+
+
+class _AccessDeniedPage:
+    def __init__(self) -> None:
+        self.url = "https://www.bigbasket.com/"
+
+    def title(self) -> str:
+        return "Access Denied"
+
+    def locator(self, selector: str) -> _BodyLocator:
+        if selector == "body":
+            return _BodyLocator(
+                "You don't have permission to access this server. "
+                "Reference #18.6518d017 https://errors.edgesuite.net/"
+            )
+        return _BodyLocator("")
 
 
 def _force_dummy_mode() -> None:
@@ -98,6 +135,25 @@ def test_checkout_like_observation_snapshot() -> None:
 
     assert "checkout" in observation.detected_page_hints
     assert observation.checkout_ready is True
+
+
+def test_access_denied_snapshot_is_not_classified_as_home() -> None:
+    observation = extract_observation_from_snapshot(
+        {
+            "observed_url": "https://www.bigbasket.com/",
+            "page_title": "Access Denied",
+        }
+    )
+
+    assert observation.detected_page_hints[:2] == ["access_denied", "unknown"]
+    assert observation.notes == "BigBasket blocked the runtime browser session."
+
+
+def test_access_denied_current_page_observation_returns_blocked_hints() -> None:
+    observation = extract_current_page_observation(_AccessDeniedPage())
+
+    assert observation.detected_page_hints == ["access_denied", "unknown"]
+    assert observation.notes == "BigBasket blocked the runtime browser session."
 
 
 def test_dummy_mode_screenshot_endpoint_returns_safe_payload() -> None:

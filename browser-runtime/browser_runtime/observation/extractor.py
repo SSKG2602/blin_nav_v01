@@ -7,6 +7,7 @@ from browser_runtime.automation import (
     classify_page_state,
     collect_semantic_page_signals,
     collect_search_result_candidates,
+    detect_access_denied,
     detect_location_blocked,
     detect_checkout_entry_readiness,
     extract_cart_evidence,
@@ -139,6 +140,12 @@ def extract_observation_from_snapshot(snapshot: dict[str, Any]) -> RuntimePageOb
         )
 
     notes = _normalize_text(snapshot.get("notes")) or None
+    if "access_denied" in detected_page_hints:
+        detected_page_hints = list(
+            dict.fromkeys(["access_denied", "unknown", *detected_page_hints])
+        )
+        if notes is None:
+            notes = "BigBasket blocked the runtime browser session."
     if notes is None and detected_page_hints == ["unknown"]:
         notes = "Could not extract strong page evidence."
 
@@ -175,6 +182,14 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
             page_title=page_title,
             detected_page_hints=["location_blocked", page_state],
             notes="Waiting for location selection.",
+        )
+
+    if detect_access_denied(page):
+        return RuntimePageObservation(
+            observed_url=observed_url,
+            page_title=page_title,
+            detected_page_hints=["access_denied", "unknown"],
+            notes="BigBasket blocked the runtime browser session.",
         )
 
     if page_state == "login":
@@ -299,6 +314,9 @@ def extract_current_page_observation(page: Any) -> RuntimePageObservation:
     combined_identity = f"{_normalize_text(observed_url).lower()} {_normalize_text(page_title).lower()}"
     if any(token in combined_identity for token in ("thank you", "order placed", "order confirmation")):
         notes_list.append("order_confirmation_detected")
+
+    if "access_denied" in hints:
+        notes_list.append("bigbasket_runtime_blocked")
 
     if hints == ["unknown"]:
         notes_list.append("weak_page_evidence")

@@ -6,7 +6,7 @@ import {
   buildLiveWebSocketUrl,
   createLiveSession,
   getCurrentUser,
-  getAmazonConnectionStatus,
+  getBigBasketConnectionStatus,
   loadLatestOrderSnapshot,
   login,
   persistAuthToken,
@@ -254,6 +254,10 @@ export function useDemoShell() {
 
     const hints = observation.detected_page_hints ?? [];
     const notes = observation.notes ?? "";
+    const pageTitle = observation.page_title ?? "";
+    if (hints.includes("access_denied") || pageTitle.toLowerCase() === "access denied") {
+      return "BigBasket blocked the runtime browser session.";
+    }
     if (observation.observed_url === "navigating" || hints.includes("navigating")) {
       return "Navigating to BigBasket.";
     }
@@ -277,6 +281,9 @@ export function useDemoShell() {
     }
     if (notes.includes("Sign-in required")) {
       return "Sign-in required.";
+    }
+    if (notes.includes("blocked the runtime browser session")) {
+      return "BigBasket blocked the runtime browser session.";
     }
     return browserActivityStatus;
   };
@@ -334,9 +341,12 @@ export function useDemoShell() {
     await refreshRuntimeScreenshotState(id, true);
   };
 
-  const refreshAmazonConnectionStatus = async (id: string, silent = false): Promise<AmazonConnectionStatus | null> => {
+  const refreshBigBasketConnectionStatus = async (
+    id: string,
+    silent = false
+  ): Promise<AmazonConnectionStatus | null> => {
     try {
-      const status = await getAmazonConnectionStatus(id);
+      const status = await getBigBasketConnectionStatus(id);
       setAmazonConnected(status.connected);
       if (status.connected) {
         setAmazonAuthNote("BigBasket Connected ✓");
@@ -346,7 +356,7 @@ export function useDemoShell() {
       return status;
     } catch (err) {
       if (!silent) {
-        setError(err instanceof Error ? err.message : "Failed to inspect Amazon connection status.");
+        setError(err instanceof Error ? err.message : "Failed to inspect BigBasket connection status.");
       }
       return null;
     }
@@ -934,7 +944,7 @@ export function useDemoShell() {
       await refreshContext(live.session_id);
       await refreshRuntimeObservationState(live.session_id, true);
       await refreshRuntimeScreenshotState(live.session_id, true);
-      await refreshAmazonConnectionStatus(live.session_id, true);
+      await refreshBigBasketConnectionStatus(live.session_id, true);
       await refreshSessionHistory();
       startPolling(live.session_id);
       startScreenshotPolling(live.session_id);
@@ -1424,7 +1434,7 @@ export function useDemoShell() {
       setAmazonCookiePanelOpen(false);
       appendTranscript(makeTranscript("system", "BigBasket Connected ✓"));
       setBrowserActivityStatus("BigBasket cookies loaded into the runtime session.");
-      await refreshAmazonConnectionStatus(sessionId, true);
+      await refreshBigBasketConnectionStatus(sessionId, true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save BigBasket cookies.";
       setAmazonConnected(false);

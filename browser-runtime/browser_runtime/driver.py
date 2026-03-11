@@ -5,9 +5,14 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 from typing import Any, Dict, TypeVar
+from urllib.parse import urlparse
 from uuid import UUID
 
-from browser_runtime.automation.helpers import classify_page_state, detect_location_blocked
+from browser_runtime.automation.helpers import (
+    classify_page_state,
+    detect_access_denied,
+    detect_location_blocked,
+)
 from browser_runtime.observation.extractor import (
     extract_current_page_observation,
     extract_current_page_screenshot,
@@ -21,6 +26,24 @@ except ImportError:  # Playwright not installed
 
 logger = logging.getLogger(__name__)
 _PageResult = TypeVar("_PageResult")
+_DEFAULT_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+)
+_DEFAULT_BROWSER_CONTEXT_OPTIONS = {
+    "user_agent": _DEFAULT_BROWSER_USER_AGENT,
+    "locale": "en-IN",
+    "timezone_id": "Asia/Kolkata",
+    "viewport": {"width": 1440, "height": 900},
+    "extra_http_headers": {"Accept-Language": "en-IN,en;q=0.9"},
+}
+_BROWSER_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'language', { get: () => 'en-IN' });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-IN', 'en'] });
+Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+"""
 
 
 def _navigating_observation_payload() -> dict[str, Any]:
@@ -110,6 +133,74 @@ def _normalize_cookie_payload(cookie: Any) -> dict[str, Any]:
         normalized["sameSite"] = same_site
 
     return normalized
+
+
+def _normalize_domain_candidate(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip().lower()
+    if not text:
+        return None
+
+    parsed = urlparse(text if "://" in text else f"https://{text}")
+    host = parsed.hostname
+    if isinstance(host, str) and host:
+        text = host.lower()
+    else:
+        text = text.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        if ":" in text:
+            text = text.split(":", 1)[0]
+
+    normalized = text.lstrip(".").rstrip(".")
+    return normalized or None
+
+
+def _domain_matches_target(candidate: str | None, target: str | None) -> bool:
+    if candidate is None or target is None:
+        return False
+    return candidate == target or candidate.endswith(f".{target}")
+
+
+def _cookie_matches_merchant_domain(cookie: dict[str, Any], merchant_domain: str | None) -> bool:
+    if merchant_domain is None:
+        return False
+
+    domain_candidate = _normalize_domain_candidate(cookie.get("domain"))
+    if _domain_matches_target(domain_candidate, merchant_domain):
+        return True
+
+    url_candidate = _normalize_domain_candidate(cookie.get("url"))
+    return _domain_matches_target(url_candidate, merchant_domain)
+
+
+def _infer_cookie_target_domain(cookies_list: list[dict[str, Any]]) -> str | None:
+    for cookie in cookies_list:
+        domain_candidate = _normalize_domain_candidate(cookie.get("domain"))
+        if domain_candidate is not None:
+            return domain_candidate
+
+        url_candidate = _normalize_domain_candidate(cookie.get("url"))
+        if url_candidate is not None:
+            return url_candidate
+
+    return None
+
+
+def _merchant_home_url(merchant_domain: str | None) -> str | None:
+    normalized = _normalize_domain_candidate(merchant_domain)
+    if normalized is None:
+        return None
+    if normalized.startswith("www."):
+        return f"https://{normalized}"
+    return f"https://www.{normalized}"
+
+
+def _missing_cookie_note(merchant_domain: str | None) -> str:
+    normalized = _normalize_domain_candidate(merchant_domain)
+    if normalized is None:
+        return "No merchant cookies detected in the runtime session."
+    return f"No {normalized} cookies detected in the runtime session."
 
 
 class DummyPage:
@@ -272,6 +363,8 @@ class BrowserSessionManager:
                         "--disable-dev-shm-usage",
                         "--disable-gpu",
                         "--no-zygote",
+                        "--disable-blink-features=AutomationControlled",
+                        "--lang=en-IN",
                     ],
                 )
                 logger.info("Chromium launched successfully.")
@@ -298,7 +391,10 @@ class BrowserSessionManager:
             return page
 
         try:
-            context = self._browser.new_context()
+            context = self._browser.new_context(**_DEFAULT_BROWSER_CONTEXT_OPTIONS)
+            add_init_script = getattr(context, "add_init_script", None)
+            if callable(add_init_script):
+                add_init_script(_BROWSER_INIT_SCRIPT)
             page = context.new_page()
             self._contexts[session_id] = context
             self._pages[session_id] = page
@@ -375,6 +471,9 @@ class BrowserSessionManager:
             if detect_location_blocked(page):
                 blocked_hints.append("location_blocked")
                 blocked_notes.append("Waiting for location selection.")
+            if detect_access_denied(page):
+                blocked_hints.extend(["access_denied", "unknown"])
+                blocked_notes.append("BigBasket blocked the runtime browser session.")
             page_state = classify_page_state(page)
             if page_state == "login":
                 blocked_hints.append("login")
@@ -383,9 +482,10 @@ class BrowserSessionManager:
                 existing_hints = list(payload.get("detected_page_hints") or [])
                 payload["detected_page_hints"] = list(dict.fromkeys([*blocked_hints, *existing_hints]))
                 existing_notes = str(payload.get("notes") or "").strip()
-                payload["notes"] = " ".join(
-                    part for part in [*blocked_notes, existing_notes or None] if part
+                deduped_notes = list(
+                    dict.fromkeys(part for part in [*blocked_notes, existing_notes or None] if part)
                 )
+                payload["notes"] = " ".join(deduped_notes)
             return payload
 
         return self._executor.submit(_run).result()
@@ -411,13 +511,20 @@ class BrowserSessionManager:
 
         return self._executor.submit(_run).result()
 
-    def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
+    def get_connection_status(
+        self,
+        session_id: UUID,
+        merchant_domain: str | None = None,
+    ) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
             self._ensure_browser_started()
             page = self._get_or_create_page_for_session(session_id)
             context = self._contexts.get(session_id)
             current_url = getattr(page, "url", None)
             current_url_text = current_url if isinstance(current_url, str) and current_url else None
+            resolved_domain = _normalize_domain_candidate(merchant_domain) or _normalize_domain_candidate(
+                current_url_text
+            )
             if context is None:
                 return {
                     "connected": False,
@@ -446,24 +553,36 @@ class BrowserSessionManager:
                     "notes": f"Cookie inspection failed: {exc}",
                 }
 
-            amazon_cookies = [
+            matching_cookies = [
                 cookie
                 for cookie in raw_cookies or []
-                if isinstance(cookie, dict) and "amazon.in" in str(cookie.get("domain", "")).lower()
+                if isinstance(cookie, dict) and _cookie_matches_merchant_domain(cookie, resolved_domain)
             ]
             return {
-                "connected": len(amazon_cookies) > 0,
-                "cookie_count": len(amazon_cookies),
+                "connected": len(matching_cookies) > 0,
+                "cookie_count": len(matching_cookies),
                 "current_url": current_url_text,
-                "notes": None if amazon_cookies else "No amazon.in cookies detected in the runtime session.",
+                "notes": None if matching_cookies else _missing_cookie_note(resolved_domain),
             }
 
         return self._executor.submit(_run).result()
 
-    def set_session_cookies(self, session_id: UUID, cookies_list: list[Any]) -> None:
+    def get_amazon_auth_status(self, session_id: UUID) -> dict[str, Any]:
+        return self.get_connection_status(session_id, merchant_domain="amazon.in")
+
+    def set_session_cookies(
+        self,
+        session_id: UUID,
+        cookies_list: list[Any],
+        merchant_domain: str | None = None,
+    ) -> None:
         normalized_cookies = [_normalize_cookie_payload(cookie) for cookie in cookies_list]
         if not normalized_cookies:
             raise ValueError("No cookies were provided.")
+        target_domain = _normalize_domain_candidate(merchant_domain) or _infer_cookie_target_domain(
+            normalized_cookies
+        )
+        target_url = _merchant_home_url(target_domain)
 
         with self._lock:
             self._navigating[session_id] = True
@@ -480,18 +599,20 @@ class BrowserSessionManager:
                 raise RuntimeError("Browser context does not support cookie injection.")
 
             try:
-                page.goto("https://www.amazon.in", wait_until="domcontentloaded", timeout=30000)
                 add_cookies_fn(normalized_cookies)
-                page.reload(wait_until="domcontentloaded")
+                if target_url is not None:
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                else:
+                    page.reload(wait_until="domcontentloaded")
             except Exception:
-                logger.exception("Asynchronous Amazon cookie navigation failed for session %s", session_id)
+                logger.exception("Asynchronous cookie navigation failed for session %s", session_id)
                 raise
             finally:
                 with self._lock:
                     self._navigating[session_id] = False
 
         try:
-            self._executor.submit(_run)
+            self._executor.submit(_run).result()
         except Exception:
             with self._lock:
                 self._navigating[session_id] = False

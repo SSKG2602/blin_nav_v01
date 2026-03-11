@@ -71,3 +71,17 @@ def test_classify_unknown_page() -> None:
     assert result.notes is not None
     assert result.confidence <= 0.40
 
+
+def test_classify_blocked_page_keeps_unknown_with_low_confidence() -> None:
+    raw_data = {
+        "page_type": "access_denied",
+        "blocked_page": True,
+        "page_title": "Access Denied",
+        "notes": "BigBasket blocked the runtime browser session.",
+    }
+
+    result = classify_page_understanding(raw_data)
+
+    assert result.page_type == PageType.UNKNOWN
+    assert result.notes == "BigBasket blocked the runtime browser session."
+    assert result.confidence <= 0.10

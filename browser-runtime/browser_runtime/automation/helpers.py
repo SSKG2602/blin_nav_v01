@@ -252,6 +252,12 @@ PRODUCT_REVIEW_SNIPPET_SELECTORS = [
     "div[qa='review'] span",
 ]
 
+ACCESS_DENIED_TEXT_MARKERS = (
+    "you don't have permission to access",
+    "errors.edgesuite.net",
+    "reference #",
+)
+
 CART_COUNT_SELECTORS = [
     "div[class*='BasketSummary']",
     "span[class*='ItemCount']",
@@ -531,6 +537,13 @@ def safe_page_title(page: Any) -> str | None:
     return text or None
 
 
+def safe_body_text(page: Any, timeout_ms: int = 2500) -> str | None:
+    body = safe_locator(page, "body")
+    if body is None:
+        return None
+    return safe_inner_text(_first(body), timeout_ms=timeout_ms)
+
+
 def safe_goto(page: Any, url: str, timeout_ms: int = 15000) -> bool:
     goto_fn = getattr(page, "goto", None)
     if not callable(goto_fn):
@@ -764,6 +777,15 @@ def detect_location_blocked(page: Any) -> bool:
     return False
 
 
+def detect_access_denied(page: Any) -> bool:
+    title = _normalize_lower(safe_page_title(page))
+    body = _normalize_lower(safe_body_text(page))
+    combined = " ".join(part for part in [title, body] if part)
+    if title == "access denied":
+        return True
+    return any(marker in combined for marker in ACCESS_DENIED_TEXT_MARKERS)
+
+
 def classify_page_state(page: Any) -> str:
     """
     Classify the current browser page into a named state.
@@ -774,6 +796,8 @@ def classify_page_state(page: Any) -> str:
     url = _normalize_lower(safe_page_url(page))
     if not url or url == "about:blank":
         return "blank"
+    if detect_access_denied(page):
+        return "unknown"
     if "login" in url or "signin" in url or "sign-in" in url:
         return "login"
     if "checkout" in url:
@@ -1684,6 +1708,9 @@ def infer_page_hints(
     url = _normalize_lower(observed_url)
     title = _normalize_lower(page_title)
 
+    if title == "access denied" or any(marker in title for marker in ACCESS_DENIED_TEXT_MARKERS):
+        hints.extend(["access_denied", "unknown"])
+
     if "captcha" in url or "captcha" in title:
         hints.append("captcha")
     if "otp" in url or "otp" in title or "verification code" in title:
@@ -1700,7 +1727,7 @@ def infer_page_hints(
         hints.append("product_detail")
     if product_candidates or "/ps/" in url or "?q=" in url:
         hints.append("search_results")
-    if not hints and "bigbasket.com" in url:
+    if "access_denied" not in hints and not hints and "bigbasket.com" in url:
         hints.append("home")
     if not hints:
         hints.append("unknown")

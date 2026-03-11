@@ -19,6 +19,17 @@ def build_page_understanding_from_browser_observation(
         normalized["url"] = observed_url
 
     hints = normalized.get("detected_page_hints")
+    page_title = normalized.get("page_title")
+    blocked_hint = isinstance(hints, list) and any(
+        isinstance(hint, str) and hint.strip().lower() == "access_denied"
+        for hint in hints
+    )
+    blocked_title = isinstance(page_title, str) and page_title.strip().lower() == "access denied"
+    if blocked_hint or blocked_title:
+        normalized["blocked_page"] = True
+        normalized["page_type"] = "unknown"
+        normalized["notes"] = normalized.get("notes") or "BigBasket blocked the runtime browser session."
+
     if "page_type" not in normalized and isinstance(hints, list):
         for hint in hints:
             if isinstance(hint, str) and hint.strip():

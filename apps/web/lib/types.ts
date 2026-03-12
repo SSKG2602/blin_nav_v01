@@ -151,27 +151,6 @@ export interface SessionContextSnapshot {
     confirmation_phrase_expected?: string | null;
     notes?: string | null;
   } | null;
-  latest_post_purchase_summary?: {
-    order_item_title?: string | null;
-    order_price_text?: string | null;
-    delivery_window_text?: string | null;
-    orders_location_hint?: string | null;
-    spoken_summary: string;
-    notes?: string | null;
-  } | null;
-  latest_order_snapshot?: {
-    order_id_hint?: string | null;
-    order_date_text?: string | null;
-    shipping_stage_text?: string | null;
-    expected_delivery_text?: string | null;
-    order_total_text?: string | null;
-    order_card_title?: string | null;
-    orders_page_url?: string | null;
-    support_entry_hint?: string | null;
-    returns_entry_hint?: string | null;
-    spoken_summary: string;
-    notes?: string | null;
-  } | null;
   latest_final_session_artifact?: {
     original_goal?: string | null;
     clarified_goal?: string | null;
@@ -245,15 +224,6 @@ export interface RuntimeScreenshot {
   image_base64?: string | null;
   mime_type: string;
   source: string;
-  notes?: string | null;
-}
-
-export interface OrderCancellationResult {
-  cancelled: boolean;
-  cancellable?: boolean | null;
-  order_card_title?: string | null;
-  shipping_stage_text?: string | null;
-  spoken_summary: string;
   notes?: string | null;
 }
 

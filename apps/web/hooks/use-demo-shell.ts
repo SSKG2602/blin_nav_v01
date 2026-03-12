@@ -2,11 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  cancelLatestOrder,
   buildLiveWebSocketUrl,
   createLiveSession,
   getCurrentUser,
-  loadLatestOrderSnapshot,
   login,
   persistAuthToken,
   getRuntimeObservation,
@@ -23,7 +21,6 @@ import type {
   AgentStepResponse,
   ClarificationRequest,
   LiveGatewayEvent,
-  OrderCancellationResult,
   RuntimeObservation,
   RuntimeScreenshot,
   SessionContextSnapshot,
@@ -210,8 +207,6 @@ export function useDemoShell() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [audioCaptureSupported, setAudioCaptureSupported] = useState(false);
   const [voiceSupportMessage, setVoiceSupportMessage] = useState<string | null>(null);
-  const [orderCancelBusy, setOrderCancelBusy] = useState(false);
-
   useEffect(() => {
     voiceModeEnabledRef.current = voiceModeEnabled;
     wakePhraseEnabledRef.current = voiceModeEnabled;
@@ -1290,39 +1285,6 @@ export function useDemoShell() {
     }
   };
 
-  const fetchLatestOrderSnapshot = async () => {
-    if (!sessionId) {
-      return;
-    }
-    try {
-      setBrowserActivityStatus("Loading the latest order details from the merchant site.");
-      await loadLatestOrderSnapshot(sessionId);
-      appendTranscript(makeTranscript("system", "Loaded latest order details from the merchant site."));
-      await refreshAfterMeaningfulTransition(sessionId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load latest order snapshot.");
-    }
-  };
-
-  const cancelPlacedOrder = async () => {
-    if (!sessionId) {
-      return;
-    }
-    setOrderCancelBusy(true);
-    setError(null);
-    setBrowserActivityStatus("Attempting to cancel the latest order from the merchant site.");
-    try {
-      const result: OrderCancellationResult = await cancelLatestOrder(sessionId);
-      appendTranscript(makeTranscript(result.cancelled ? "assistant" : "warning", result.spoken_summary));
-      setBrowserActivityStatus(result.spoken_summary);
-      await refreshAfterMeaningfulTransition(sessionId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cancel the latest order.");
-    } finally {
-      setOrderCancelBusy(false);
-    }
-  };
-
   return {
     sessionId,
     currentUser,
@@ -1361,7 +1323,6 @@ export function useDemoShell() {
     speechSupported,
     audioCaptureSupported,
     voiceSupportMessage,
-    orderCancelBusy,
     finalConfirmationPending:
       context?.latest_final_purchase_confirmation?.required === true &&
       context?.latest_final_purchase_confirmation?.confirmed !== true,
@@ -1382,8 +1343,6 @@ export function useDemoShell() {
     respondToClarification,
     removeCartLine,
     updateCartLineQuantity,
-    fetchLatestOrderSnapshot,
-    cancelPlacedOrder,
     resolveActiveCheckpoint,
     resolveFinalPurchase,
     closeConnection,

@@ -44,9 +44,7 @@ export function DemoShell() {
   const clarificationPending = demo.clarificationPending;
   const finalConfirmation = demo.finalConfirmation;
   const finalConfirmationPending = demo.finalConfirmationPending;
-  const postPurchase = demo.context?.latest_post_purchase_summary;
   const cartSnapshot = demo.context?.latest_cart_snapshot;
-  const latestOrder = demo.context?.latest_order_snapshot;
   const finalArtifact = demo.context?.latest_final_session_artifact;
   const finalDiagnosis = demo.context?.latest_final_self_diagnosis;
   const connectionState = demo.connected ? "connected" : demo.connecting ? "connecting" : "disconnected";
@@ -583,14 +581,48 @@ export function DemoShell() {
 
           <article className="rounded-3xl border border-slate-300 bg-white p-5">
             <h2 className="text-lg font-semibold">Current Session Evidence</h2>
-            {postPurchase ? (
-              <div className="mt-3 space-y-1 text-sm text-slate-700">
-                <p>Item: {postPurchase.order_item_title ?? "n/a"}</p>
-                <p>Price: {postPurchase.order_price_text ?? "n/a"}</p>
-                <p>Delivery: {postPurchase.delivery_window_text ?? "n/a"}</p>
-                <p className="rounded-xl bg-slate-100 px-3 py-2">
-                  {postPurchase.spoken_summary || "No spoken summary available yet."}
-                </p>
+            {demo.context?.latest_spoken_summary ||
+            demo.context?.latest_multimodal_assessment ||
+            cartSnapshot ||
+            finalArtifact ||
+            clarificationPending ||
+            lowConfidenceActive ||
+            recoveryActive ? (
+              <div className="mt-3 space-y-2 text-sm text-slate-700">
+                {demo.context?.latest_spoken_summary ? (
+                  <p className="rounded-xl bg-slate-100 px-3 py-2">{demo.context.latest_spoken_summary}</p>
+                ) : null}
+                {demo.context?.latest_multimodal_assessment ? (
+                  <p>
+                    Decision: {demo.context.latest_multimodal_assessment.decision} | Confidence:{" "}
+                    {demo.context.latest_multimodal_assessment.confidence}
+                  </p>
+                ) : null}
+                {demo.context?.latest_multimodal_assessment?.recommended_next_step ? (
+                  <p>Next step: {demo.context.latest_multimodal_assessment.recommended_next_step}</p>
+                ) : null}
+                {cartSnapshot ? (
+                  <p>
+                    Cart: {cartSnapshot.cart_item_count ?? cartSnapshot.items.length ?? 0} item(s) | Checkout ready:{" "}
+                    {cartSnapshot.checkout_ready === true
+                      ? "yes"
+                      : cartSnapshot.checkout_ready === false
+                        ? "no"
+                        : "unknown"}
+                  </p>
+                ) : null}
+                {clarificationPending ? (
+                  <p>Clarification: {demo.clarification?.prompt_to_user ?? "Waiting for clarification."}</p>
+                ) : null}
+                {recoveryActive ? (
+                  <p>Recovery: {demo.context?.latest_recovery_status?.reason ?? "Recovery in progress."}</p>
+                ) : null}
+                {lowConfidenceActive ? (
+                  <p>Low confidence: {demo.context?.latest_low_confidence_status?.reason ?? "Awaiting safer user guidance."}</p>
+                ) : null}
+                {finalArtifact?.chosen_product ? <p>Chosen product: {finalArtifact.chosen_product}</p> : null}
+                {finalArtifact?.chosen_variant ? <p>Chosen variant: {finalArtifact.chosen_variant}</p> : null}
+                {finalArtifact?.quantity_text ? <p>Quantity: {finalArtifact.quantity_text}</p> : null}
               </div>
             ) : (
               <p className="mt-3 text-sm text-slate-600">No current session evidence captured yet.</p>
@@ -687,49 +719,6 @@ export function DemoShell() {
               </div>
             ) : (
               <p className="mt-3 text-sm text-slate-600">No cart items captured yet.</p>
-            )}
-          </article>
-
-          <article className="rounded-3xl border border-slate-300 bg-white p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">Deferred Order Snapshot</h2>
-                <p className="mt-1 text-xs text-slate-500">Not part of the bounded nopCommerce demo path.</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-300 px-3 py-1 text-xs"
-                  onClick={demo.fetchLatestOrderSnapshot}
-                  disabled={!demo.sessionId}
-                >
-                  Load Deferred Order
-                </button>
-                {(postPurchase || latestOrder) ? (
-                  <button
-                    type="button"
-                    className="rounded-xl border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 disabled:border-slate-200 disabled:text-slate-400"
-                    onClick={demo.cancelPlacedOrder}
-                    disabled={!demo.sessionId || demo.orderCancelBusy}
-                  >
-                    {demo.orderCancelBusy ? "Cancelling..." : "Cancel Deferred Order"}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            {latestOrder ? (
-              <div className="mt-3 space-y-1 text-sm text-slate-700">
-                <p>Order: {latestOrder.order_card_title ?? latestOrder.order_id_hint ?? "n/a"}</p>
-                <p>Date: {latestOrder.order_date_text ?? "n/a"}</p>
-                <p>Status: {latestOrder.shipping_stage_text ?? "n/a"}</p>
-                <p>Expected delivery: {latestOrder.expected_delivery_text ?? "n/a"}</p>
-                <p>Total: {latestOrder.order_total_text ?? "n/a"}</p>
-                <p>Returns: {latestOrder.returns_entry_hint ?? "n/a"}</p>
-                <p>Support: {latestOrder.support_entry_hint ?? "n/a"}</p>
-                <p className="rounded-xl bg-slate-100 px-3 py-2">{latestOrder.spoken_summary}</p>
-              </div>
-            ) : (
-              <p className="mt-3 text-sm text-slate-600">No deferred order snapshot loaded.</p>
             )}
           </article>
 

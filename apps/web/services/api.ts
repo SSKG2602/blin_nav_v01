@@ -1,7 +1,6 @@
 import type {
   AuthSessionResponse,
   LiveSessionCreateResponse,
-  OrderCancellationResult,
   RuntimeObservation,
   RuntimeScreenshot,
   SessionContextSnapshot,
@@ -196,20 +195,6 @@ export async function updateCartQuantity(params: {
       title: params.title ?? null,
       quantity: params.quantity
     })
-  });
-}
-
-export async function loadLatestOrderSnapshot(sessionId: string) {
-  return requestJson(`/api/sessions/${sessionId}/orders/latest`, {
-    method: "POST",
-    body: JSON.stringify({})
-  });
-}
-
-export async function cancelLatestOrder(sessionId: string): Promise<OrderCancellationResult> {
-  return requestJson<OrderCancellationResult>(`/api/sessions/${sessionId}/orders/cancel`, {
-    method: "POST",
-    body: JSON.stringify({})
   });
 }
 
